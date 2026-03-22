@@ -35,6 +35,7 @@ export default function ProjectHome({ onOpen }: Props) {
   const [editingId,   setEditingId]   = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
   const editInputRef = useRef<HTMLInputElement>(null)
+  const [hoveredId,   setHoveredId]   = useState<string | null>(null)
 
   const load = () => axios.get('/api/projects').then(r => setProjects(r.data))
   useEffect(() => { load() }, [])
@@ -165,10 +166,12 @@ export default function ProjectHome({ onOpen }: Props) {
                   onMouseEnter={e => {
                     e.currentTarget.style.borderColor = T.borderMid
                     e.currentTarget.style.background  = T.inputBg
+                    setHoveredId(p.id)
                   }}
                   onMouseLeave={e => {
                     e.currentTarget.style.borderColor = T.border
                     e.currentTarget.style.background  = T.nodeSubtle
+                    setHoveredId(null)
                   }}
                 >
                   {/* 预览占位 */}
@@ -197,9 +200,9 @@ export default function ProjectHome({ onOpen }: Props) {
                         <span style={{ fontSize: 13, fontWeight: 500, color: T.text, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
                         <button
                           onClick={e => startEdit(e, p)}
-                          className="group-hover:opacity-100"
                           style={{
-                            opacity: 0, padding: '2px 4px', background: 'none', border: 'none',
+                            opacity: hoveredId === p.id ? 1 : 0,
+                            padding: '2px 4px', background: 'none', border: 'none',
                             color: T.textSub, cursor: 'pointer', fontSize: 11, borderRadius: 4,
                             flexShrink: 0, transition: 'opacity 0.15s',
                           }}
@@ -218,11 +221,10 @@ export default function ProjectHome({ onOpen }: Props) {
                       alignSelf: 'flex-end', padding: '3px 8px', borderRadius: 5,
                       background: 'transparent', border: 'none',
                       fontSize: 11, color: 'rgba(255,69,58,0.5)', cursor: 'pointer',
-                      opacity: 0, transition: 'opacity 0.15s',
+                      opacity: hoveredId === p.id ? 1 : 0, transition: 'opacity 0.15s',
                     }}
                     onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,69,58,0.9)')}
                     onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,69,58,0.5)')}
-                    className="group-hover:opacity-100"
                   >删除</button>
                 </div>
               ))}
