@@ -60,7 +60,10 @@
       "Bash(powershell -Command \"Get-Process -Name node -ErrorAction SilentlyContinue | Stop-Process -Force\")",
       "Bash(powershell -Command \"Invoke-WebRequest -Uri http://localhost:3001/api/gallery -UseBasicParsing | Select-Object -ExpandProperty StatusCode\")",
       "Bash(powershell -Command \"Start-Process -NoNewWindow -FilePath ''node'' -ArgumentList ''index.js'' -WorkingDirectory ''D:\\\\Coding\\\\AIGC\\\\backend''\")",
-      "Bash(powershell -Command \"Set-Location ''D:\\\\Coding\\\\AIGC''; git init; git add .; git status --short\")"
+      "Bash(powershell -Command \"Set-Location ''D:\\\\Coding\\\\AIGC''; git init; git add .; git status --short\")",
+      "Bash(powershell -Command \"Set-Location ''D:\\\\Coding\\\\AIGC''; git commit -m ''feat: initial commit - AIGC infinite canvas with storyboard agent''\")",
+      "Bash(powershell -Command \"Set-Location ''D:\\\\Coding\\\\AIGC''; git status --short; git diff HEAD\")",
+      "Bash(powershell -Command \"Set-Location ''D:\\\\Coding\\\\AIGC''; git add .claude/settings.local.json; git commit -m ''chore: update Claude Code approved permissions''\")"
     ]
   }
 }
