@@ -32,6 +32,9 @@ export default function ProjectHome({ onOpen }: Props) {
   const [newName,  setNewName]  = useState('')
   const [loading,  setLoading]  = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const [editingId,   setEditingId]   = useState<string | null>(null)
+  const [editingName, setEditingName] = useState('')
+  const editInputRef = useRef<HTMLInputElement>(null)
 
   const load = () => axios.get('/api/projects').then(r => setProjects(r.data))
   useEffect(() => { load() }, [])
@@ -49,6 +52,22 @@ export default function ProjectHome({ onOpen }: Props) {
     if (!confirm('删除后不可恢复，确认删除？')) return
     await axios.delete(`/api/projects/${id}`)
     load()
+  }
+
+  const startEdit = (e: React.MouseEvent, p: ProjectMeta) => {
+    e.stopPropagation()
+    setEditingId(p.id)
+    setEditingName(p.name)
+    setTimeout(() => { editInputRef.current?.focus(); editInputRef.current?.select() }, 40)
+  }
+
+  const commitEdit = async (id: string) => {
+    const name = editingName.trim()
+    if (name && name !== projects.find(p => p.id === id)?.name) {
+      await axios.put(`/api/projects/${id}`, { name })
+      load()
+    }
+    setEditingId(null)
   }
 
   return (
@@ -156,7 +175,38 @@ export default function ProjectHome({ onOpen }: Props) {
                   <div style={{ height: 72, borderRadius: 6, background: T.nodeSubtle }} />
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                    <span style={{ fontSize: 13, fontWeight: 500, color: T.text }}>{p.name}</span>
+                    {editingId === p.id ? (
+                      <input
+                        ref={editInputRef}
+                        value={editingName}
+                        onChange={e => setEditingName(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') commitEdit(p.id)
+                          if (e.key === 'Escape') setEditingId(null)
+                        }}
+                        onBlur={() => commitEdit(p.id)}
+                        onClick={e => e.stopPropagation()}
+                        style={{
+                          fontSize: 13, fontWeight: 500, color: T.text,
+                          background: T.inputBg, border: `1px solid ${T.borderMid}`,
+                          borderRadius: 5, padding: '2px 6px', outline: 'none', width: '100%',
+                        }}
+                      />
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <span style={{ fontSize: 13, fontWeight: 500, color: T.text, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                        <button
+                          onClick={e => startEdit(e, p)}
+                          className="group-hover:opacity-100"
+                          style={{
+                            opacity: 0, padding: '2px 4px', background: 'none', border: 'none',
+                            color: T.textSub, cursor: 'pointer', fontSize: 11, borderRadius: 4,
+                            flexShrink: 0, transition: 'opacity 0.15s',
+                          }}
+                          title="重命名"
+                        >✎</button>
+                      </div>
+                    )}
                     <span style={{ fontSize: 11, color: T.textMuted }}>
                       {p.nodeCount} 个节点 · {timeAgo(p.updatedAt)}
                     </span>
