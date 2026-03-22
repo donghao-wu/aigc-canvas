@@ -4,6 +4,8 @@ const dotenv = require('dotenv');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
 dotenv.config();
 
@@ -29,6 +31,64 @@ function validateId(id) {
 
 const API_KEY = process.env.LAOZHANG_API_KEY;
 const API_BASE = 'https://api.laozhang.ai';
+const JWT_SECRET    = process.env.JWT_SECRET    || 'changeme-secret';
+const ADMIN_SECRET  = process.env.ADMIN_SECRET  || 'changeme-admin';
+
+// ── 用户存储 ──────────────────────────────────────────────────
+const USERS_FILE = path.join(__dirname, 'users.json');
+function loadUsers() {
+  try { return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8')); } catch { return []; }
+}
+function saveUsers(users) {
+  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+}
+
+// ── JWT 鉴权中间件 ─────────────────────────────────────────────
+function authMiddleware(req, res, next) {
+  const header = req.headers['authorization'] || '';
+  const token  = header.startsWith('Bearer ') ? header.slice(7) : null;
+  if (!token) return res.status(401).json({ error: '未登录' });
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    req.userId   = payload.userId;
+    req.username = payload.username;
+    next();
+  } catch {
+    res.status(401).json({ error: 'Token 已过期，请重新登录' });
+  }
+}
+
+// ── 登录接口 ──────────────────────────────────────────────────
+app.post('/api/auth/login', async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) return res.status(400).json({ error: '用户名和密码不能为空' });
+  const users = loadUsers();
+  const user  = users.find(u => u.username === username);
+  if (!user) return res.status(401).json({ error: '用户名或密码错误' });
+  const ok = await bcrypt.compare(password, user.passwordHash);
+  if (!ok) return res.status(401).json({ error: '用户名或密码错误' });
+  const token = jwt.sign({ userId: user.id, username: user.username }, JWT_SECRET, { expiresIn: '30d' });
+  res.json({ token, username: user.username });
+});
+
+// ── 管理员创建用户 ─────────────────────────────────────────────
+app.post('/api/admin/create-user', async (req, res) => {
+  if (req.headers['x-admin-secret'] !== ADMIN_SECRET) {
+    return res.status(403).json({ error: '无权限' });
+  }
+  const { username, password } = req.body;
+  if (!username || !password) return res.status(400).json({ error: '用户名和密码不能为空' });
+  const users = loadUsers();
+  if (users.find(u => u.username === username)) return res.status(409).json({ error: '用户名已存在' });
+  const passwordHash = await bcrypt.hash(password, 10);
+  const id = `user_${Date.now()}`;
+  users.push({ id, username, passwordHash, createdAt: new Date().toISOString() });
+  saveUsers(users);
+  // 为该用户创建项目目录
+  const dir = path.join(__dirname, 'projects', id);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  res.json({ ok: true, id, username });
+});
 
 // ── 图片库存储 ─────────────────────────────────────────────────
 const GENERATED_DIR = path.join(__dirname, 'generated');
@@ -363,17 +423,24 @@ app.delete('/api/gallery/:id', (req, res) => {
   }
 });
 
-// ── 项目存储 ──────────────────────────────────────────────────
-const PROJECTS_DIR = path.join(__dirname, 'projects');
-if (!fs.existsSync(PROJECTS_DIR)) fs.mkdirSync(PROJECTS_DIR, { recursive: true });
+// ── 项目存储（按用户隔离） ────────────────────────────────────
+const PROJECTS_ROOT = path.join(__dirname, 'projects');
+if (!fs.existsSync(PROJECTS_ROOT)) fs.mkdirSync(PROJECTS_ROOT, { recursive: true });
 
-app.get('/api/projects', (req, res) => {
+function getUserProjectsDir(userId) {
+  const dir = path.join(PROJECTS_ROOT, userId);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+app.get('/api/projects', authMiddleware, (req, res) => {
   try {
-    const list = fs.readdirSync(PROJECTS_DIR)
+    const dir = getUserProjectsDir(req.userId);
+    const list = fs.readdirSync(dir)
       .filter(f => f.endsWith('.json'))
       .map(f => {
         try {
-          const d = JSON.parse(fs.readFileSync(path.join(PROJECTS_DIR, f), 'utf8'));
+          const d = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
           return { id: d.id, name: d.name, createdAt: d.createdAt, updatedAt: d.updatedAt, nodeCount: (d.nodes || []).length };
         } catch { return null; }
       })
@@ -383,24 +450,25 @@ app.get('/api/projects', (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/api/projects', (req, res) => {
-  const id = `proj_${Date.now()}`;
+app.post('/api/projects', authMiddleware, (req, res) => {
+  const dir = getUserProjectsDir(req.userId);
+  const id  = `proj_${Date.now()}`;
   const now = new Date().toISOString();
   const project = { id, name: req.body.name || '未命名项目', createdAt: now, updatedAt: now, nodes: [], edges: [] };
-  fs.writeFileSync(path.join(PROJECTS_DIR, `${id}.json`), JSON.stringify(project));
+  fs.writeFileSync(path.join(dir, `${id}.json`), JSON.stringify(project));
   res.json({ id: project.id, name: project.name, createdAt: now, updatedAt: now, nodeCount: 0 });
 });
 
-app.get('/api/projects/:id', (req, res) => {
+app.get('/api/projects/:id', authMiddleware, (req, res) => {
   if (!validateId(req.params.id)) return res.status(400).json({ error: 'Invalid id' });
-  const fp = path.join(PROJECTS_DIR, `${req.params.id}.json`);
+  const fp = path.join(getUserProjectsDir(req.userId), `${req.params.id}.json`);
   if (!fs.existsSync(fp)) return res.status(404).json({ error: 'Not found' });
   res.json(JSON.parse(fs.readFileSync(fp, 'utf8')));
 });
 
-app.put('/api/projects/:id', (req, res) => {
+app.put('/api/projects/:id', authMiddleware, (req, res) => {
   if (!validateId(req.params.id)) return res.status(400).json({ error: 'Invalid id' });
-  const fp = path.join(PROJECTS_DIR, `${req.params.id}.json`);
+  const fp = path.join(getUserProjectsDir(req.userId), `${req.params.id}.json`);
   if (!fs.existsSync(fp)) return res.status(404).json({ error: 'Not found' });
   const existing = JSON.parse(fs.readFileSync(fp, 'utf8'));
   const updated = { ...existing, name: req.body.name ?? existing.name, nodes: req.body.nodes ?? existing.nodes, edges: req.body.edges ?? existing.edges, workbench: req.body.workbench ?? existing.workbench ?? null, updatedAt: new Date().toISOString() };
@@ -408,9 +476,9 @@ app.put('/api/projects/:id', (req, res) => {
   res.json({ id: updated.id, name: updated.name, updatedAt: updated.updatedAt });
 });
 
-app.delete('/api/projects/:id', (req, res) => {
+app.delete('/api/projects/:id', authMiddleware, (req, res) => {
   if (!validateId(req.params.id)) return res.status(400).json({ error: 'Invalid id' });
-  const fp = path.join(PROJECTS_DIR, `${req.params.id}.json`);
+  const fp = path.join(getUserProjectsDir(req.userId), `${req.params.id}.json`);
   if (fs.existsSync(fp)) fs.unlinkSync(fp);
   res.json({ ok: true });
 });

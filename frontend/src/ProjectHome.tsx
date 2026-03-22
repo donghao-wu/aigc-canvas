@@ -12,6 +12,8 @@ interface ProjectMeta {
 
 interface Props {
   onOpen: (p: { id: string; name: string }) => void
+  username?: string
+  onLogout?: () => void
 }
 
 function timeAgo(iso: string) {
@@ -24,7 +26,7 @@ function timeAgo(iso: string) {
   return `${Math.floor(h / 24)} 天前`
 }
 
-export default function ProjectHome({ onOpen }: Props) {
+export default function ProjectHome({ onOpen, username, onLogout }: Props) {
   const { theme, T, toggle } = useTheme()
   const SEP = <div style={{ height: 1, background: T.border, margin: '24px 0' }} />
   const [projects, setProjects] = useState<ProjectMeta[]>([])
@@ -77,10 +79,23 @@ export default function ProjectHome({ onOpen }: Props) {
       {/* 顶栏 */}
       <div style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 40px', borderBottom: `1px solid ${T.border}` }}>
         <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: '0.02em', color: T.text }}>Studio</span>
-        <button
-          onClick={toggle}
-          style={{ fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: T.textSub }}
-        >{theme === 'dark' ? '◑ 浅色' : '◑ 深色'}</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <button
+            onClick={toggle}
+            style={{ fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: T.textSub }}
+          >{theme === 'dark' ? '◑ 浅色' : '◑ 深色'}</button>
+          {username && (
+            <span style={{ fontSize: 12, color: T.textMuted }}>
+              {username}
+            </span>
+          )}
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              style={{ fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: T.textMuted }}
+            >退出</button>
+          )}
+        </div>
       </div>
 
       {/* 主内容 */}
