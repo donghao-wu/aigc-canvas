@@ -193,7 +193,7 @@ function Canvas({ project, onHome, onSwitchToWorkbench }: { project: ProjectRef;
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onContextMenu={onContextMenu}
-        dragHandle=".drag-handle"
+
         colorMode={theme === 'dark' ? 'dark' : 'light'}
         fitView
         fitViewOptions={{ maxZoom: 0.75 }}
