@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import axios from 'axios'
 import ProjectHome from './ProjectHome'
+import LoginPage from './LoginPage'
 import { useTheme } from './ThemeContext'
 import {
   ReactFlow,
@@ -354,8 +355,46 @@ type AppView =
   | { type: 'home' }
   | { type: 'project'; project: ProjectRef; tab: 'canvas' | 'workbench' }
 
+// ── axios 全局 token 拦截器 ───────────────────────────────────
+axios.interceptors.request.use(config => {
+  const token = localStorage.getItem('auth_token')
+  if (token) config.headers['Authorization'] = `Bearer ${token}`
+  return config
+})
+
 export default function App() {
-  const [view, setView] = useState<AppView>({ type: 'home' })
+  const [view, setView]         = useState<AppView>({ type: 'home' })
+  const [token, setToken]       = useState<string | null>(() => localStorage.getItem('auth_token'))
+  const [username, setUsername] = useState<string>(() => localStorage.getItem('auth_username') || '')
+
+  const handleLogin = (newToken: string, newUsername: string) => {
+    localStorage.setItem('auth_token', newToken)
+    localStorage.setItem('auth_username', newUsername)
+    setToken(newToken)
+    setUsername(newUsername)
+  }
+
+  const handleLogout = () => {
+    localStorage.removeItem('auth_token')
+    localStorage.removeItem('auth_username')
+    setToken(null)
+    setUsername('')
+    setView({ type: 'home' })
+  }
+
+  // 全局 401 处理 → 自动登出
+  useEffect(() => {
+    const id = axios.interceptors.response.use(
+      r => r,
+      err => {
+        if (err.response?.status === 401) handleLogout()
+        return Promise.reject(err)
+      }
+    )
+    return () => axios.interceptors.response.eject(id)
+  }, [])
+
+  if (!token) return <LoginPage onLogin={handleLogin} />
 
   if (view.type === 'project') {
     const { project, tab } = view
@@ -386,6 +425,8 @@ export default function App() {
 
   return (
     <ProjectHome
+      username={username}
+      onLogout={handleLogout}
       onOpen={p => setView({ type: 'project', project: p, tab: 'canvas' })}
     />
   )
