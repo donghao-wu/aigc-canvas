@@ -79,20 +79,20 @@ export default function ProjectHome({ onOpen, username, onLogout }: Props) {
       {/* 顶栏 */}
       <div style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 40px', borderBottom: `1px solid ${T.border}` }}>
         <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: '0.02em', color: T.text }}>壹镜</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button
             onClick={toggle}
-            style={{ fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: T.textSub }}
+            style={{ fontSize: 14, padding: '5px 12px', borderRadius: 6, background: T.inputBg, border: `1px solid ${T.borderMid}`, cursor: 'pointer', color: T.text }}
           >{theme === 'dark' ? '◑ 浅色' : '◑ 深色'}</button>
           {username && (
-            <span style={{ fontSize: 12, color: T.textMuted }}>
+            <span style={{ fontSize: 14, fontWeight: 500, color: T.text, padding: '5px 12px', borderRadius: 6, background: T.inputBg, border: `1px solid ${T.borderMid}` }}>
               {username}
             </span>
           )}
           {onLogout && (
             <button
               onClick={onLogout}
-              style={{ fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: T.textMuted }}
+              style={{ fontSize: 14, padding: '5px 12px', borderRadius: 6, background: T.inputBg, border: `1px solid ${T.borderMid}`, cursor: 'pointer', color: T.text }}
             >退出</button>
           )}
         </div>
