@@ -88,9 +88,17 @@ body {
   border-radius: 2px;
 }
 
-/* ── 按钮通用 hover ── */
-button:not(:disabled):hover {
-  opacity: 0.8;
+/* ── 次级按钮（带边框）hover ── */
+.btn-pill {
+  transition: background 0.15s, border-color 0.15s;
+}
+html[data-theme="dark"] .btn-pill:hover {
+  background: rgba(255,255,255,0.12) !important;
+  border-color: rgba(255,255,255,0.28) !important;
+}
+html[data-theme="light"] .btn-pill:hover {
+  background: rgba(0,0,0,0.1) !important;
+  border-color: rgba(0,0,0,0.28) !important;
 }
 
 /* ── 动画 ── */

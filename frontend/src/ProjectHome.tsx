@@ -82,17 +82,19 @@ export default function ProjectHome({ onOpen, username, onLogout }: Props) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button
             onClick={toggle}
-            style={{ fontSize: 14, padding: '5px 12px', borderRadius: 6, background: T.inputBg, border: `1px solid ${T.borderMid}`, cursor: 'pointer', color: T.text }}
+            className="btn-pill"
+            style={{ fontSize: 14, padding: '5px 12px', borderRadius: 6, background: T.nodeSubtle, border: `1px solid ${T.borderMid}`, cursor: 'pointer', color: T.text }}
           >{theme === 'dark' ? '◑ 浅色' : '◑ 深色'}</button>
           {username && (
-            <span style={{ fontSize: 14, fontWeight: 500, color: T.text, padding: '5px 12px', borderRadius: 6, background: T.inputBg, border: `1px solid ${T.borderMid}` }}>
+            <span style={{ fontSize: 14, fontWeight: 500, color: T.text, padding: '5px 12px', borderRadius: 6, background: T.nodeSubtle, border: `1px solid ${T.borderMid}` }}>
               {username}
             </span>
           )}
           {onLogout && (
             <button
               onClick={onLogout}
-              style={{ fontSize: 14, padding: '5px 12px', borderRadius: 6, background: T.inputBg, border: `1px solid ${T.borderMid}`, cursor: 'pointer', color: T.text }}
+              className="btn-pill"
+              style={{ fontSize: 14, padding: '5px 12px', borderRadius: 6, background: T.nodeSubtle, border: `1px solid ${T.borderMid}`, cursor: 'pointer', color: T.text }}
             >退出</button>
           )}
         </div>
