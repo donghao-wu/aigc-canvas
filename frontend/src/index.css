@@ -88,20 +88,22 @@ body {
   border-radius: 2px;
 }
 
-/* ── 次级按钮悬浮浮起效果 ── */
+/* ── 按钮/卡片悬浮浮起效果 ── */
 .btn-pill {
-  transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+  transition: transform 0.15s, box-shadow 0.15s, background 0.15s, border-color 0.15s;
 }
 .btn-pill:hover {
   transform: translateY(-2px);
 }
 html[data-theme="dark"] .btn-pill:hover {
-  background: rgba(255,255,255,0.12) !important;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  background: rgba(255,255,255,0.1) !important;
+  border-color: rgba(255,255,255,0.28) !important;
+  box-shadow: 0 6px 16px rgba(0,0,0,0.5);
 }
 html[data-theme="light"] .btn-pill:hover {
-  background: rgba(0,0,0,0.08) !important;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  background: rgba(0,0,0,0.07) !important;
+  border-color: rgba(0,0,0,0.28) !important;
+  box-shadow: 0 6px 16px rgba(0,0,0,0.12);
 }
 
 /* ── 动画 ── */
