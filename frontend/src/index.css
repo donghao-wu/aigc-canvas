@@ -88,6 +88,11 @@ body {
   border-radius: 2px;
 }
 
+/* ── 按钮通用 hover ── */
+button:not(:disabled):hover {
+  opacity: 0.8;
+}
+
 /* ── 动画 ── */
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes fadeIn {
