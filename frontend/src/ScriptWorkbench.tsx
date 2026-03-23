@@ -176,6 +176,26 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
   const streamRef  = useRef<string>('')
   const chatEndRef = useRef<HTMLDivElement>(null)
   const wbInitialized = useRef(false)
+  const scriptRef  = useRef(script)
+  const shotsRef   = useRef(shots)
+  const promptsRef = useRef(prompts)
+  const assetsRef  = useRef(assets)
+  useEffect(() => { scriptRef.current  = script  }, [script])
+  useEffect(() => { shotsRef.current   = shots   }, [shots])
+  useEffect(() => { promptsRef.current = prompts }, [prompts])
+  useEffect(() => { assetsRef.current  = assets  }, [assets])
+
+  // 卸载时立即保存（防止防抖未触发就退出）
+  useEffect(() => {
+    return () => {
+      if (!wbInitialized.current) return
+      fetch(`/api/projects/${projectId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+        body: JSON.stringify({ workbench: { script: scriptRef.current, shots: shotsRef.current, prompts: promptsRef.current, assets: assetsRef.current } }),
+      }).catch(() => {})
+    }
+  }, [projectId])
 
   // 加载工作台数据
   useEffect(() => {
