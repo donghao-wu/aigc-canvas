@@ -184,6 +184,7 @@ export default function AssetPanel({ promptTexts, script, projectId, assets, onA
 
       const updatedNodes = [...existingNodes, ...newNodes]
       await axios.put(`/api/projects/${projectId}`, { nodes: updatedNodes, edges: proj.edges || [] })
+      window.dispatchEvent(new CustomEvent('canvas-refresh'))
       setSendStatus('done')
       setTimeout(() => setSendStatus('idle'), 2000)
     } catch {

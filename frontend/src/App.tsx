@@ -121,7 +121,7 @@ function Canvas({ project, onHome, onSwitchToWorkbench }: { project: ProjectRef;
   const { screenToFlowPosition, zoomIn, zoomOut } = useReactFlow()
 
   // 加载项目数据
-  useEffect(() => {
+  const loadProject = useCallback(() => {
     initialized.current = false
     axios.get(`/api/projects/${project.id}`).then(({ data }) => {
       setNodes(data.nodes || [])
@@ -129,6 +129,14 @@ function Canvas({ project, onHome, onSwitchToWorkbench }: { project: ProjectRef;
       setTimeout(() => { initialized.current = true; setSaveStatus('saved') }, 200)
     })
   }, [project.id])
+
+  useEffect(() => { loadProject() }, [project.id])
+
+  // 监听资产发送事件，刷新画布节点
+  useEffect(() => {
+    window.addEventListener('canvas-refresh', loadProject)
+    return () => window.removeEventListener('canvas-refresh', loadProject)
+  }, [loadProject])
 
   // 自动保存（2 秒防抖）
   useEffect(() => {
