@@ -217,7 +217,7 @@ function Canvas({ project, onHome, onSwitchToWorkbench }: { project: ProjectRef;
         selectionOnDrag={true}
         style={{ background: T.canvasBg }}
       >
-        <Background variant={BackgroundVariant.Dots} gap={24} size={1} color={theme === 'dark' ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.1)'} />
+        <Background variant={BackgroundVariant.Dots} gap={28} size={1.5} color={theme === 'dark' ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.2)'} />
         <Controls showInteractive={false} />
 
         {/* 顶部标题栏 */}
@@ -225,10 +225,10 @@ function Canvas({ project, onHome, onSwitchToWorkbench }: { project: ProjectRef;
           <div
             className="flex items-center gap-3"
             style={{
-              padding: '8px 16px',
+              padding: '6px 14px',
               background: T.headerBg,
               border: `1px solid ${T.border}`,
-              borderRadius: 8,
+              borderRadius: 24,
               backdropFilter: 'blur(20px)',
             }}
           >
