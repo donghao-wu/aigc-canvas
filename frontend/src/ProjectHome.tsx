@@ -113,17 +113,15 @@ export default function ProjectHome({ onOpen, username, onLogout }: Props) {
         {!creating ? (
           <button
             onClick={() => setCreating(true)}
+            className="btn-pill"
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 8,
               padding: '10px 18px', borderRadius: 8,
-              background: T.inputBg,
+              background: T.nodeSubtle,
               border: `1px solid ${T.borderMid}`,
               color: T.text, fontSize: 14, fontWeight: 500, cursor: 'pointer',
-              transition: 'background 0.15s',
               width: 'fit-content',
             }}
-            onMouseEnter={e => (e.currentTarget.style.background = T.inputBg)}
-            onMouseLeave={e => (e.currentTarget.style.background = T.nodeSubtle)}
           >
             <span style={{ fontSize: 16, lineHeight: 1 }}>+</span>
             新建项目
@@ -149,15 +147,17 @@ export default function ProjectHome({ onOpen, username, onLogout }: Props) {
             <button
               onClick={handleCreate}
               disabled={loading}
+              className="btn-pill"
               style={{
                 padding: '9px 14px', borderRadius: 8, fontSize: 13,
                 background: T.btnBg, color: T.btnText,
-                border: 'none', cursor: 'pointer', fontWeight: 500,
+                border: `1px solid ${T.borderMid}`, cursor: 'pointer', fontWeight: 500,
               }}
             >{loading ? '创建中' : '创建'}</button>
             <button
               onClick={() => { setCreating(false); setNewName('') }}
-              style={{ padding: '9px 14px', borderRadius: 8, fontSize: 13, background: 'transparent', border: 'none', color: T.textMuted, cursor: 'pointer' }}
+              className="btn-pill"
+              style={{ padding: '9px 14px', borderRadius: 8, fontSize: 13, background: T.nodeSubtle, border: `1px solid ${T.borderMid}`, color: T.textSub, cursor: 'pointer' }}
             >取消</button>
           </div>
         )}
@@ -172,24 +172,15 @@ export default function ProjectHome({ onOpen, username, onLogout }: Props) {
                 <div
                   key={p.id}
                   onClick={() => onOpen({ id: p.id, name: p.name })}
-                  className="group"
+                  className="group btn-pill"
                   style={{
                     display: 'flex', flexDirection: 'column', gap: 12,
                     padding: '16px 18px', borderRadius: 10, cursor: 'pointer',
                     background: T.nodeSubtle,
                     border: `1px solid ${T.border}`,
-                    transition: 'border-color 0.15s, background 0.15s',
                   }}
-                  onMouseEnter={e => {
-                    e.currentTarget.style.borderColor = T.borderMid
-                    e.currentTarget.style.background  = T.inputBg
-                    setHoveredId(p.id)
-                  }}
-                  onMouseLeave={e => {
-                    e.currentTarget.style.borderColor = T.border
-                    e.currentTarget.style.background  = T.nodeSubtle
-                    setHoveredId(null)
-                  }}
+                  onMouseEnter={() => setHoveredId(p.id)}
+                  onMouseLeave={() => setHoveredId(null)}
                 >
                   {/* 预览占位 */}
                   <div style={{ height: 72, borderRadius: 6, background: T.nodeSubtle }} />
