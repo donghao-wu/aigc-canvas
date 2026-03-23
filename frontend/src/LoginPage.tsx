@@ -39,20 +39,20 @@ export default function LoginPage({ onLogin }: Props) {
       }}>
         {/* Logo / Title */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <span style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', color: T.text }}>Studio</span>
-          <span style={{ fontSize: 13, color: T.textSub }}>登录以继续</span>
+          <span style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.02em', color: T.text }}>壹镜</span>
+          <span style={{ fontSize: 14, color: T.textSub }}>登录以继续</span>
         </div>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <label style={{ fontSize: 12, color: T.textSub }}>用户名</label>
+            <label style={{ fontSize: 13, color: T.textSub }}>用户名</label>
             <input
               value={username}
               onChange={e => setUsername(e.target.value)}
               autoFocus
               autoComplete="username"
               style={{
-                padding: '10px 12px', borderRadius: 8, fontSize: 14,
+                padding: '11px 14px', borderRadius: 8, fontSize: 15,
                 background: T.inputBg, border: `1px solid ${T.borderMid}`,
                 color: T.text, outline: 'none', width: '100%', boxSizing: 'border-box',
               }}
@@ -60,14 +60,14 @@ export default function LoginPage({ onLogin }: Props) {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <label style={{ fontSize: 12, color: T.textSub }}>密码</label>
+            <label style={{ fontSize: 13, color: T.textSub }}>密码</label>
             <input
               type="password"
               value={password}
               onChange={e => setPassword(e.target.value)}
               autoComplete="current-password"
               style={{
-                padding: '10px 12px', borderRadius: 8, fontSize: 14,
+                padding: '11px 14px', borderRadius: 8, fontSize: 15,
                 background: T.inputBg, border: `1px solid ${T.borderMid}`,
                 color: T.text, outline: 'none', width: '100%', boxSizing: 'border-box',
               }}
@@ -82,7 +82,7 @@ export default function LoginPage({ onLogin }: Props) {
             type="submit"
             disabled={loading || !username || !password}
             style={{
-              marginTop: 4, padding: '11px', borderRadius: 8, fontSize: 14, fontWeight: 500,
+              marginTop: 4, padding: '13px', borderRadius: 8, fontSize: 15, fontWeight: 600,
               background: T.btnBg, color: T.btnText, border: 'none',
               cursor: loading ? 'not-allowed' : 'pointer',
               opacity: (!username || !password) ? 0.5 : 1,

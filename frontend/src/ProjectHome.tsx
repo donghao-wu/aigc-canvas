@@ -78,7 +78,7 @@ export default function ProjectHome({ onOpen, username, onLogout }: Props) {
 
       {/* 顶栏 */}
       <div style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 40px', borderBottom: `1px solid ${T.border}` }}>
-        <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: '0.02em', color: T.text }}>Studio</span>
+        <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: '0.02em', color: T.text }}>壹镜</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           <button
             onClick={toggle}
@@ -102,8 +102,8 @@ export default function ProjectHome({ onOpen, username, onLogout }: Props) {
       <div style={{ width: '100%', maxWidth: 860, padding: '64px 32px', display: 'flex', flexDirection: 'column', gap: 0 }}>
 
         {/* 标题 */}
-        <h1 style={{ fontSize: 28, fontWeight: 600, color: T.text, letterSpacing: '-0.02em', lineHeight: 1.2 }}>Studio</h1>
-        <p style={{ marginTop: 6, fontSize: 13, color: T.textSub }}>选择项目继续创作，或开始一个新项目</p>
+        <h1 style={{ fontSize: 34, fontWeight: 700, color: T.text, letterSpacing: '-0.02em', lineHeight: 1.2 }}>壹镜</h1>
+        <p style={{ marginTop: 8, fontSize: 15, color: T.textSub }}>选择项目继续创作，或开始一个新项目</p>
 
         {SEP}
 
@@ -113,10 +113,10 @@ export default function ProjectHome({ onOpen, username, onLogout }: Props) {
             onClick={() => setCreating(true)}
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 8,
-              padding: '9px 16px', borderRadius: 8,
-              background: T.nodeSubtle,
-              border: `1px solid ${T.border}`,
-              color: T.textSub, fontSize: 13, cursor: 'pointer',
+              padding: '10px 18px', borderRadius: 8,
+              background: T.inputBg,
+              border: `1px solid ${T.borderMid}`,
+              color: T.text, fontSize: 14, fontWeight: 500, cursor: 'pointer',
               transition: 'background 0.15s',
               width: 'fit-content',
             }}
