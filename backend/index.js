@@ -207,7 +207,7 @@ const MJ_AR_MAP = {
 
 async function generateMidjourney(prompt, aspectRatio) {
   const ar = MJ_AR_MAP[aspectRatio] || '1:1';
-  const fullPrompt = `${prompt} --ar ${ar}`;
+  const fullPrompt = `${prompt} --ar ${ar} --relax`;
 
   // 1. 提交任务
   const submitRes = await axios.post(
