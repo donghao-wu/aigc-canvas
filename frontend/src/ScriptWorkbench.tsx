@@ -180,7 +180,9 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
   // 加载工作台数据
   useEffect(() => {
     wbInitialized.current = false
-    fetch(`/api/projects/${projectId}`)
+    fetch(`/api/projects/${projectId}`, {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      })
       .then(r => r.json())
       .then(data => {
         const wb = data.workbench
@@ -205,7 +207,7 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
       try {
         await fetch(`/api/projects/${projectId}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
           body: JSON.stringify({ workbench: { script, shots, prompts, assets } }),
         })
         setWbSaveStatus('saved')
@@ -227,7 +229,7 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
     try {
       const res = await fetch('/api/script-agent', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
         body: JSON.stringify(payload),
       })
       if (!res.body) throw new Error('No response body')
