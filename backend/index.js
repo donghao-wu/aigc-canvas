@@ -199,6 +199,48 @@ async function generateNanoBanana(prompt, model, aspectRatio, imageSize, referen
   return { mimeType: match[1], base64: match[2] };
 }
 
+// ── Midjourney 生图 ──────────────────────────────────────────
+const MJ_AR_MAP = {
+  '1:1': '1:1', '16:9': '16:9', '9:16': '9:16',
+  '4:3': '4:3', '3:4': '3:4',  '3:2': '3:2',
+};
+
+async function generateMidjourney(prompt, aspectRatio) {
+  const ar = MJ_AR_MAP[aspectRatio] || '1:1';
+  const fullPrompt = `${prompt} --ar ${ar}`;
+
+  // 1. 提交任务
+  const submitRes = await axios.post(
+    `${API_BASE}/mj/submit/imagine`,
+    { prompt: fullPrompt, base64Array: [] },
+    { headers: { Authorization: `Bearer ${API_KEY}`, 'Content-Type': 'application/json' }, timeout: 30000 }
+  );
+  const taskId = submitRes.data?.result;
+  if (!taskId) throw new Error('MJ 提交失败: ' + JSON.stringify(submitRes.data));
+  console.log(`[MJ] 任务已提交 taskId=${taskId}`);
+
+  // 2. 轮询直到完成（最多等 5 分钟）
+  const deadline = Date.now() + 5 * 60 * 1000;
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 5000));
+    const fetchRes = await axios.get(
+      `${API_BASE}/mj/task/${taskId}/fetch`,
+      { headers: { Authorization: `Bearer ${API_KEY}` }, timeout: 15000 }
+    );
+    const { status, imageUrl, failReason } = fetchRes.data || {};
+    console.log(`[MJ] 轮询 status=${status}`);
+    if (status === 'FAILURE') throw new Error('MJ 生成失败: ' + failReason);
+    if (status === 'SUCCESS' && imageUrl) {
+      // 下载图片转 base64
+      const imgRes = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 30000 });
+      const mimeType = imgRes.headers['content-type']?.split(';')[0] || 'image/png';
+      const base64 = Buffer.from(imgRes.data).toString('base64');
+      return { mimeType, base64 };
+    }
+  }
+  throw new Error('MJ 生成超时（5分钟）');
+}
+
 // ── 生图接口 ────────────────────────────────────────────────
 app.post('/api/generate-image', async (req, res) => {
   try {
@@ -215,21 +257,23 @@ app.post('/api/generate-image', async (req, res) => {
       return res.status(400).json({ error: 'prompt 不能为空' });
     }
 
-    // 合并：新多图 + 旧单图兼容
-    const allRefs = referenceImages.length > 0
-      ? referenceImages
-      : (referenceImage?.base64 ? [referenceImage] : []);
-
-    console.log(`[生图] model=${model} ratio=${aspectRatio} size=${imageSize} 参考图=${allRefs.length}张`);
+    console.log(`[生图] model=${model} ratio=${aspectRatio} size=${imageSize}`);
     console.log(`[生图] prompt="${prompt.slice(0, 80)}"`);
 
-    const result = await generateNanoBanana(
-      prompt.trim(), model, aspectRatio, imageSize, allRefs
-    );
+    let result;
+    if (model === 'midjourney') {
+      result = await generateMidjourney(prompt.trim(), aspectRatio);
+    } else {
+      // 合并：新多图 + 旧单图兼容
+      const allRefs = referenceImages.length > 0
+        ? referenceImages
+        : (referenceImage?.base64 ? [referenceImage] : []);
+      console.log(`[生图] 参考图=${allRefs.length}张`);
+      result = await generateNanoBanana(prompt.trim(), model, aspectRatio, imageSize, allRefs);
+    }
 
     console.log(`[生图] 成功，mime=${result.mimeType}`);
-    // 自动存入图片库
-    const savedId = persistImage(result.base64, result.mimeType, prompt.trim(), model, allRefs.length);
+    const savedId = persistImage(result.base64, result.mimeType, prompt.trim(), model, 0);
     res.json({ base64: result.base64, mimeType: result.mimeType, savedId });
 
   } catch (error) {

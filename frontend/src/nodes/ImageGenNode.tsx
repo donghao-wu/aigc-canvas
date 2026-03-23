@@ -7,12 +7,13 @@ import axios from 'axios'
 // ── 配置 ─────────────────────────────────────────────────────
 // 纯文字模式用 NanoBanana
 const TEXT_MODELS = [
+  { id: 'midjourney',                     label: 'Midjourney',     badge: '高质量' },
   { id: 'gemini-3-pro-image-preview',     label: 'NanoBanana Pro', badge: '最优' },
   { id: 'gemini-3.1-flash-image-preview', label: 'NanoBanana 2',   badge: '快速' },
   { id: 'gemini-2.5-flash-image',         label: 'NanoBanana',     badge: '均衡' },
 ]
 
-// 参考图模式也用 NanoBanana（支持 inline_data 参考图输入）
+// 参考图模式不含 MJ（MJ 不支持参考图）
 const REF_MODELS = [
   { id: 'gemini-3-pro-image-preview',     label: 'NanoBanana Pro', badge: '最优' },
   { id: 'gemini-3.1-flash-image-preview', label: 'NanoBanana 2',   badge: '快速' },
