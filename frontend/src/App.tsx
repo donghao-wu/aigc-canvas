@@ -232,33 +232,32 @@ function Canvas({ project, onHome, onSwitchToWorkbench }: { project: ProjectRef;
               backdropFilter: 'blur(20px)',
             }}
           >
-            <button onClick={onHome} style={{ fontSize: 13, color: T.textSub, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+            <button onClick={onHome} style={{ fontSize: 14, color: T.textSub, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
               ← 壹镜
             </button>
-            <div style={{ width: 1, height: 14, background: T.border }} />
-            <span style={{ fontSize: 13, fontWeight: 500, color: T.text }}>{project.name}</span>
-            <div style={{ width: 1, height: 14, background: T.border }} />
+            <div style={{ width: 1, height: 16, background: T.border }} />
+            <span style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{project.name}</span>
+            <div style={{ width: 1, height: 16, background: T.border }} />
             <span style={{
-              fontSize: 11,
+              fontSize: 13,
               color: saveStatus === 'saved'  ? T.textMuted
                    : saveStatus === 'saving' ? 'rgba(200,150,50,0.8)'
                    : T.textMuted,
             }}>
               {saveStatus === 'saved' ? '已保存' : saveStatus === 'saving' ? '保存中' : '未保存'}
             </span>
-            <div style={{ width: 1, height: 14, background: T.border }} />
-            <button onClick={() => setGalleryOpen(o => !o)} style={{ fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: galleryOpen ? T.text : T.textSub }}>
+            <div style={{ width: 1, height: 16, background: T.border }} />
+            <button onClick={() => setGalleryOpen(o => !o)} style={{ fontSize: 14, fontWeight: galleryOpen ? 600 : 400, background: galleryOpen ? T.nodeSubtle : 'none', border: 'none', cursor: 'pointer', padding: '4px 8px', borderRadius: 6, color: galleryOpen ? T.text : T.textSub }}>
               图片库
             </button>
-            <div style={{ width: 1, height: 14, background: T.border }} />
-            <button onClick={onSwitchToWorkbench} style={{ fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: T.textSub }}>
+            <button onClick={onSwitchToWorkbench} style={{ fontSize: 14, fontWeight: 400, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px', borderRadius: 6, color: T.textSub }}>
               剧本工作台
             </button>
-            <div style={{ width: 1, height: 14, background: T.border }} />
+            <div style={{ width: 1, height: 16, background: T.border }} />
             <button
               onClick={toggle}
               title={theme === 'dark' ? '切换浅色' : '切换深色'}
-              style={{ fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: T.textSub }}
+              style={{ fontSize: 14, background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: T.textSub }}
             >
               {theme === 'dark' ? '◑ 浅色' : '◑ 深色'}
             </button>
@@ -319,8 +318,8 @@ function Canvas({ project, onHome, onSwitchToWorkbench }: { project: ProjectRef;
               onMouseEnter={e => (e.currentTarget.style.background = T.nodeSubtle)}
               onMouseLeave={e => (e.currentTarget.style.background = 'none')}
             >
-              <span style={{ fontSize: 13, color: T.text }}>{item.label}</span>
-              <span style={{ fontSize: 11, color: T.textMuted }}>{item.desc}</span>
+              <span style={{ fontSize: 14, color: T.text }}>{item.label}</span>
+              <span style={{ fontSize: 12, color: T.textSub }}>{item.desc}</span>
             </button>
           ))}
         </div>

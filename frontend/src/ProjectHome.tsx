@@ -212,7 +212,7 @@ export default function ProjectHome({ onOpen, username, onLogout }: Props) {
                       />
                     ) : (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <span style={{ fontSize: 13, fontWeight: 500, color: T.text, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: T.text, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
                         <button
                           onClick={e => startEdit(e, p)}
                           style={{
@@ -225,7 +225,7 @@ export default function ProjectHome({ onOpen, username, onLogout }: Props) {
                         >✎</button>
                       </div>
                     )}
-                    <span style={{ fontSize: 11, color: T.textMuted }}>
+                    <span style={{ fontSize: 13, color: T.textSub }}>
                       {p.nodeCount} 个节点 · {timeAgo(p.updatedAt)}
                     </span>
                   </div>
