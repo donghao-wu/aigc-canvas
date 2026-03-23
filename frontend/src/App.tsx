@@ -247,12 +247,33 @@ function Canvas({ project, onHome, onSwitchToWorkbench }: { project: ProjectRef;
               {saveStatus === 'saved' ? '已保存' : saveStatus === 'saving' ? '保存中' : '未保存'}
             </span>
             <div style={{ width: 1, height: 16, background: T.border }} />
-            <button onClick={() => setGalleryOpen(o => !o)} style={{ fontSize: 14, fontWeight: galleryOpen ? 600 : 400, background: galleryOpen ? T.nodeSubtle : 'none', border: 'none', cursor: 'pointer', padding: '4px 8px', borderRadius: 6, color: galleryOpen ? T.text : T.textSub }}>
-              图片库
-            </button>
-            <button onClick={onSwitchToWorkbench} style={{ fontSize: 14, fontWeight: 400, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px', borderRadius: 6, color: T.textSub }}>
-              剧本工作台
-            </button>
+            {/* 分段控件 */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 2,
+              background: T.nodeSubtle, border: `1px solid ${T.border}`,
+              borderRadius: 8, padding: 3,
+            }}>
+              <button
+                onClick={() => setGalleryOpen(o => !o)}
+                style={{
+                  fontSize: 13, fontWeight: galleryOpen ? 600 : 400,
+                  padding: '4px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                  background: galleryOpen ? (theme === 'dark' ? 'rgba(255,255,255,0.12)' : '#fff') : 'transparent',
+                  color: galleryOpen ? T.text : T.textSub,
+                  boxShadow: galleryOpen ? (theme === 'dark' ? '0 1px 4px rgba(0,0,0,0.4)' : '0 1px 4px rgba(0,0,0,0.1)') : 'none',
+                  transition: 'background 0.15s, color 0.15s, box-shadow 0.15s',
+                }}
+              >图片库</button>
+              <button
+                onClick={onSwitchToWorkbench}
+                style={{
+                  fontSize: 13, fontWeight: 400,
+                  padding: '4px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                  background: 'transparent', color: T.textSub,
+                  transition: 'background 0.15s, color 0.15s',
+                }}
+              >剧本工作台</button>
+            </div>
             <div style={{ width: 1, height: 16, background: T.border }} />
             <button
               onClick={toggle}

@@ -425,10 +425,29 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
         <div style={{ width: 1, height: 14, background: T.border }} />
         <span style={{ fontSize: 13, fontWeight: 500, color: T.text }}>{projectName}</span>
         <div style={{ width: 1, height: 14, background: T.border }} />
-        {/* Tab 切换 */}
-        <button onClick={onSwitchToCanvas} style={{ fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: T.textMuted }}>画布</button>
-        <div style={{ width: 1, height: 14, background: T.border }} />
-        <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>剧本工作台</span>
+        {/* 分段控件 */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 2,
+          background: T.nodeSubtle, border: `1px solid ${T.border}`,
+          borderRadius: 8, padding: 3,
+        }}>
+          <button
+            onClick={onSwitchToCanvas}
+            style={{
+              fontSize: 13, padding: '4px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
+              background: 'transparent', color: T.textSub,
+              transition: 'background 0.15s, color 0.15s',
+            }}
+          >画布</button>
+          <button
+            style={{
+              fontSize: 13, fontWeight: 600, padding: '4px 12px', borderRadius: 6, border: 'none', cursor: 'default',
+              background: theme === 'dark' ? 'rgba(255,255,255,0.12)' : '#fff',
+              color: T.text,
+              boxShadow: theme === 'dark' ? '0 1px 4px rgba(0,0,0,0.4)' : '0 1px 4px rgba(0,0,0,0.1)',
+            }}
+          >剧本工作台</button>
+        </div>
         <div style={{ width: 1, height: 14, background: T.border }} />
         <span style={{ fontSize: 11, color: wbSaveStatus === 'saved' ? T.textMuted : wbSaveStatus === 'saving' ? 'rgba(200,150,50,0.8)' : T.textMuted }}>
           {wbSaveStatus === 'saved' ? '已保存' : wbSaveStatus === 'saving' ? '保存中' : '未保存'}
