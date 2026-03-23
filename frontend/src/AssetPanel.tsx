@@ -1,5 +1,11 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
+import axios from 'axios'
 import { useTheme } from './ThemeContext'
+
+function authHeaders(): Record<string, string> {
+  const token = localStorage.getItem('auth_token')
+  return token ? { 'Authorization': `Bearer ${token}` } : {}
+}
 
 // ── 类型 ─────────────────────────────────────────────────────
 export interface AssetItem {
@@ -92,7 +98,7 @@ export default function AssetPanel({ promptTexts, script, projectId, assets, onA
     try {
       const res = await fetch('/api/asset-agent', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({
           promptTexts,
           script,
@@ -154,8 +160,7 @@ export default function AssetPanel({ promptTexts, script, projectId, assets, onA
     setSendStatus('loading')
 
     try {
-      const r = await fetch(`/api/projects/${projectId}`)
-      const proj = await r.json()
+      const { data: proj } = await axios.get(`/api/projects/${projectId}`)
       const existingNodes: unknown[] = proj.nodes || []
 
       // 按类型分三列排布，避免与现有节点重叠（从 y=2000 往下）
@@ -178,12 +183,7 @@ export default function AssetPanel({ promptTexts, script, projectId, assets, onA
       })
 
       const updatedNodes = [...existingNodes, ...newNodes]
-      const res = await fetch(`/api/projects/${projectId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nodes: updatedNodes, edges: proj.edges || [] }),
-      })
-      if (!res.ok) throw new Error('save failed')
+      await axios.put(`/api/projects/${projectId}`, { nodes: updatedNodes, edges: proj.edges || [] })
       setSendStatus('done')
       setTimeout(() => setSendStatus('idle'), 2000)
     } catch {
