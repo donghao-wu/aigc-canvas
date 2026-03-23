@@ -207,12 +207,12 @@ const MJ_AR_MAP = {
 
 async function generateMidjourney(prompt, aspectRatio) {
   const ar = MJ_AR_MAP[aspectRatio] || '1:1';
-  const fullPrompt = `${prompt} --ar ${ar} --relax`;
+  const fullPrompt = `${prompt} --ar ${ar}`;
 
   // 1. 提交任务
   const submitRes = await axios.post(
     `${API_BASE}/mj/submit/imagine`,
-    { prompt: fullPrompt, base64Array: [] },
+    { prompt: fullPrompt, base64Array: [], mode: 'relax' },
     { headers: { Authorization: `Bearer ${API_KEY}`, 'Content-Type': 'application/json' }, timeout: 30000 }
   );
   const taskId = submitRes.data?.result;
