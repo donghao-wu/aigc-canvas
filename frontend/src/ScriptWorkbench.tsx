@@ -173,10 +173,10 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
   const [rightTab,      setRightTab]      = useState<'prompts' | 'assets'>('prompts')
   const [assets,        setAssets]        = useState<import('./AssetPanel').AssetItem[]>([])
 
-  const streamRef  = useRef<string>('')
-  const chatEndRef = useRef<HTMLDivElement>(null)
+  const streamRef     = useRef<string>('')
+  const chatEndRef    = useRef<HTMLDivElement>(null)
   const wbInitialized = useRef(false)
-  const scriptRef  = useRef(script)
+  const scriptRef     = useRef(script)
   const shotsRef   = useRef(shots)
   const promptsRef = useRef(prompts)
   const assetsRef  = useRef(assets)
@@ -421,7 +421,14 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
 
       {/* 顶栏 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '0 24px', height: 52, flexShrink: 0, borderBottom: `1px solid ${T.border}`, background: T.headerBg, backdropFilter: 'blur(20px)' }}>
-        <button onClick={onHome} style={{ fontSize: 13, color: T.textSub, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>← 壹镜</button>
+        <button
+          onClick={onHome}
+          className="btn-pill"
+          style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: T.text, background: T.nodeSubtle, border: `1px solid ${T.borderMid}`, borderRadius: 999, cursor: 'pointer', padding: '4px 12px 4px 8px' }}
+        >
+          <img src="/logo.svg" style={{ width: 18, height: 18 }} />
+          壹镜
+        </button>
         <div style={{ width: 1, height: 14, background: T.border }} />
         <span style={{ fontSize: 13, fontWeight: 500, color: T.text }}>{projectName}</span>
         <div style={{ width: 1, height: 14, background: T.border }} />
@@ -459,12 +466,12 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
       </div>
 
       {/* 主体三栏 */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', gap: 10, padding: 10 }}>
 
         {/* ── 左栏：剧本输入 ── */}
-        <div style={{ width: 320, flexShrink: 0, display: 'flex', flexDirection: 'column', borderRight: `1px solid ${T.border}`, padding: 20, gap: 14 }}>
+        <div style={{ width: 300, flexShrink: 0, display: 'flex', flexDirection: 'column', borderRadius: 12, background: T.nodeBg, border: `1px solid ${T.border}`, boxShadow: theme === 'dark' ? '0 2px 12px rgba(0,0,0,0.4)' : '0 2px 12px rgba(0,0,0,0.06)', padding: 16, gap: 12, overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 12, fontWeight: 500, color: T.text }}>剧本</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>剧本</span>
             <span style={{ fontSize: 11, color: overLimit ? 'rgba(255,59,48,0.8)' : T.textMuted }}>{script.length} / {MAX_CHARS}</span>
           </div>
 
@@ -510,7 +517,7 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
         </div>
 
         {/* ── 中栏：分析/聊天/大纲 ── */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderRight: `1px solid ${T.border}`, minWidth: 0 }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderRadius: 12, background: T.nodeBg, border: `1px solid ${T.border}`, boxShadow: theme === 'dark' ? '0 2px 12px rgba(0,0,0,0.4)' : '0 2px 12px rgba(0,0,0,0.06)', minWidth: 0, overflow: 'hidden' }}>
           {/* 中栏标题 */}
           {phase !== 'idle' && (
             <div style={{ padding: '12px 20px', borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
@@ -798,7 +805,7 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
         </div>
 
         {/* ── 右栏：提示词 / 资产 ── */}
-        <div style={{ width: 400, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ width: 380, flexShrink: 0, display: 'flex', flexDirection: 'column', borderRadius: 12, background: T.nodeBg, border: `1px solid ${T.border}`, boxShadow: theme === 'dark' ? '0 2px 12px rgba(0,0,0,0.4)' : '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
 
           {/* Tab 标题栏 */}
           <div style={{ padding: '0 16px', borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 0, flexShrink: 0, height: 44 }}>
