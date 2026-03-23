@@ -228,12 +228,13 @@ function Canvas({ project, onHome, onSwitchToWorkbench }: { project: ProjectRef;
               padding: '6px 14px',
               background: T.headerBg,
               border: `1px solid ${T.border}`,
-              borderRadius: 24,
+              borderRadius: 999,
               backdropFilter: 'blur(20px)',
             }}
           >
-            <button onClick={onHome} style={{ fontSize: 14, color: T.textSub, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-              ← 壹镜
+            <button onClick={onHome} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+              <img src="/logo.svg" style={{ width: 22, height: 22 }} />
+              <span style={{ fontSize: 14, fontWeight: 600, color: T.text }}>壹镜</span>
             </button>
             <div style={{ width: 1, height: 16, background: T.border }} />
             <span style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{project.name}</span>

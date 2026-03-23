@@ -78,15 +78,18 @@ export default function ProjectHome({ onOpen, username, onLogout }: Props) {
 
       {/* 顶栏 */}
       <div style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 40px', borderBottom: `1px solid ${T.border}` }}>
-        <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: '0.02em', color: T.text }}>壹镜</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <img src="/logo.svg" style={{ width: 24, height: 24 }} />
+          <span style={{ fontSize: 15, fontWeight: 700, color: T.text }}>壹镜</span>
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button
             onClick={toggle}
             className="btn-pill"
-            style={{ fontSize: 14, padding: '5px 12px', borderRadius: 6, background: T.nodeSubtle, border: `1px solid ${T.borderMid}`, cursor: 'pointer', color: T.text }}
+            style={{ fontSize: 14, padding: '5px 14px', borderRadius: 999, background: T.nodeSubtle, border: `1px solid ${T.borderMid}`, cursor: 'pointer', color: T.text }}
           >{theme === 'dark' ? '◑ 浅色' : '◑ 深色'}</button>
           {username && (
-            <span style={{ fontSize: 14, fontWeight: 500, color: T.text, padding: '5px 12px', borderRadius: 6, background: T.nodeSubtle, border: `1px solid ${T.borderMid}` }}>
+            <span style={{ fontSize: 14, fontWeight: 500, color: T.text, padding: '5px 14px', borderRadius: 999, background: T.nodeSubtle, border: `1px solid ${T.borderMid}` }}>
               {username}
             </span>
           )}
@@ -94,8 +97,8 @@ export default function ProjectHome({ onOpen, username, onLogout }: Props) {
             <button
               onClick={onLogout}
               className="btn-pill"
-              style={{ fontSize: 14, padding: '5px 12px', borderRadius: 6, background: T.nodeSubtle, border: `1px solid ${T.borderMid}`, cursor: 'pointer', color: T.text }}
-            >退出</button>
+              style={{ fontSize: 14, padding: '5px 14px', borderRadius: 999, background: T.nodeSubtle, border: `1px solid ${T.borderMid}`, cursor: 'pointer', color: T.text }}
+            >退出 →</button>
           )}
         </div>
       </div>
@@ -104,7 +107,10 @@ export default function ProjectHome({ onOpen, username, onLogout }: Props) {
       <div style={{ width: '100%', maxWidth: 860, padding: '64px 32px', display: 'flex', flexDirection: 'column', gap: 0 }}>
 
         {/* 标题 */}
-        <h1 style={{ fontSize: 34, fontWeight: 700, color: T.text, letterSpacing: '-0.02em', lineHeight: 1.2 }}>壹镜</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <img src="/logo.svg" style={{ width: 40, height: 40 }} />
+          <h1 style={{ fontSize: 34, fontWeight: 700, color: T.text, letterSpacing: '-0.02em', lineHeight: 1.2 }}>壹镜</h1>
+        </div>
         <p style={{ marginTop: 8, fontSize: 15, color: T.textSub }}>选择项目继续创作，或开始一个新项目</p>
 
         {SEP}

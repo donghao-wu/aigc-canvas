@@ -38,9 +38,10 @@ export default function LoginPage({ onLogin }: Props) {
         display: 'flex', flexDirection: 'column', gap: 24,
       }}>
         {/* Logo / Title */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <span style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.02em', color: T.text }}>壹镜</span>
-          <span style={{ fontSize: 14, color: T.textSub }}>登录以继续</span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
+          <img src="/logo.svg" style={{ width: 52, height: 52 }} />
+          <span style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.01em', color: T.text }}>壹镜</span>
+          <span style={{ fontSize: 13, color: T.textSub }}>登录以继续</span>
         </div>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
