@@ -232,8 +232,8 @@ function Canvas({ project, onHome, onSwitchToWorkbench }: { project: ProjectRef;
               backdropFilter: 'blur(20px)',
             }}
           >
-            <button onClick={onHome} style={{ fontSize: 12, color: T.textMuted, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-              ← Studio
+            <button onClick={onHome} style={{ fontSize: 13, color: T.textSub, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+              ← 壹镜
             </button>
             <div style={{ width: 1, height: 14, background: T.border }} />
             <span style={{ fontSize: 13, fontWeight: 500, color: T.text }}>{project.name}</span>

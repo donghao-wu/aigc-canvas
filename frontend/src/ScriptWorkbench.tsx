@@ -421,7 +421,7 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
 
       {/* 顶栏 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '0 24px', height: 52, flexShrink: 0, borderBottom: `1px solid ${T.border}`, background: T.headerBg, backdropFilter: 'blur(20px)' }}>
-        <button onClick={onHome} style={{ fontSize: 12, color: T.textMuted, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>← Studio</button>
+        <button onClick={onHome} style={{ fontSize: 13, color: T.textSub, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>← 壹镜</button>
         <div style={{ width: 1, height: 14, background: T.border }} />
         <span style={{ fontSize: 13, fontWeight: 500, color: T.text }}>{projectName}</span>
         <div style={{ width: 1, height: 14, background: T.border }} />
