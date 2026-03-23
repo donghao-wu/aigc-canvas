@@ -401,25 +401,26 @@ export default function App() {
     const switchTab = (newTab: 'canvas' | 'workbench') =>
       setView({ type: 'project', project, tab: newTab })
 
-    if (tab === 'workbench') {
-      return (
-        <ScriptWorkbench
-          projectId={project.id}
-          projectName={project.name}
-          onHome={() => setView({ type: 'home' })}
-          onSwitchToCanvas={() => switchTab('canvas')}
-        />
-      )
-    }
-
     return (
-      <ReactFlowProvider>
-        <Canvas
-          project={project}
-          onHome={() => setView({ type: 'home' })}
-          onSwitchToWorkbench={() => switchTab('workbench')}
-        />
-      </ReactFlowProvider>
+      <>
+        <div style={{ display: tab === 'canvas' ? 'block' : 'none', width: '100vw', height: '100vh' }}>
+          <ReactFlowProvider>
+            <Canvas
+              project={project}
+              onHome={() => setView({ type: 'home' })}
+              onSwitchToWorkbench={() => switchTab('workbench')}
+            />
+          </ReactFlowProvider>
+        </div>
+        <div style={{ display: tab === 'workbench' ? 'block' : 'none', width: '100vw', height: '100vh' }}>
+          <ScriptWorkbench
+            projectId={project.id}
+            projectName={project.name}
+            onHome={() => setView({ type: 'home' })}
+            onSwitchToCanvas={() => switchTab('canvas')}
+          />
+        </div>
+      </>
     )
   }
 
