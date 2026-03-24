@@ -1,8 +1,14 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import axios from 'axios'
 import { useTheme } from './ThemeContext'
 import AssetPanel from './AssetPanel'
+
+function authHeaders(): Record<string, string> {
+  const token = localStorage.getItem('auth_token')
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
 
 // ── 类型 ─────────────────────────────────────────────────────
 type Phase =
@@ -401,6 +407,24 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
   const handleCopyAll = async () => {
     await copyText(prompts.map(p => p.content).join('\n\n---\n\n'))
     setCopiedId('all'); setTimeout(() => setCopiedId(null), 1500)
+  }
+
+  const [sentIds, setSentIds] = useState<Set<string>>(new Set())
+  const handleSendPromptToCanvas = async (p: PromptCard, index: number) => {
+    try {
+      const { data: proj } = await axios.get(`/api/projects/${projectId}`, { headers: authHeaders() })
+      const existingNodes: unknown[] = proj.nodes || []
+      const newNode = {
+        id: `prompt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        type: 'textNode',
+        position: { x: 4200, y: 2000 + index * 320 },
+        data: { name: `镜头 ${p.number}`, content: p.content },
+      }
+      await axios.put(`/api/projects/${projectId}`, { nodes: [...existingNodes, newNode], edges: proj.edges || [] }, { headers: authHeaders() })
+      window.dispatchEvent(new CustomEvent('canvas-refresh'))
+      setSentIds(prev => new Set(prev).add(p.id))
+      setTimeout(() => setSentIds(prev => { const s = new Set(prev); s.delete(p.id); return s }), 2000)
+    } catch { /* ignore */ }
   }
 
   const isStreaming = ['analyzing', 'chatting', 'outlining', 'generating'].includes(phase)
@@ -848,13 +872,18 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
               )}
               {phase === 'done' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {prompts.map(p => (
+                  {prompts.map((p, idx) => (
                     <div key={p.id} style={{ borderRadius: 8, overflow: 'hidden', background: T.nodeBg, border: `1px solid ${T.border}` }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 12px', borderBottom: `1px solid ${T.border}`, background: T.nodeSubtle }}>
                         <span style={{ fontSize: 11, fontWeight: 500, color: T.textSub }}>镜头 {p.number}</span>
-                        <button onClick={() => handleCopy(p.id, p.content)} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, background: copiedId === p.id ? T.btnBg : T.inputBg, border: `1px solid ${T.border}`, color: copiedId === p.id ? T.btnText : T.textSub, cursor: 'pointer', transition: 'all 0.15s' }}>
-                          {copiedId === p.id ? '已复制' : '复制'}
-                        </button>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button onClick={() => handleSendPromptToCanvas(p, idx)} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, background: sentIds.has(p.id) ? T.btnBg : T.inputBg, border: `1px solid ${T.border}`, color: sentIds.has(p.id) ? T.btnText : T.textSub, cursor: 'pointer', transition: 'all 0.15s' }}>
+                            {sentIds.has(p.id) ? '已发送' : '发送到画布'}
+                          </button>
+                          <button onClick={() => handleCopy(p.id, p.content)} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, background: copiedId === p.id ? T.btnBg : T.inputBg, border: `1px solid ${T.border}`, color: copiedId === p.id ? T.btnText : T.textSub, cursor: 'pointer', transition: 'all 0.15s' }}>
+                            {copiedId === p.id ? '已复制' : '复制'}
+                          </button>
+                        </div>
                       </div>
                       <pre style={{ margin: 0, padding: '10px 12px', fontSize: 11, lineHeight: 1.75, color: T.text, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'inherit' }}>
                         {p.content}

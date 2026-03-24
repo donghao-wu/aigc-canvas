@@ -132,7 +132,10 @@
       "Bash(powershell -Command \"Set-Location ''D:\\\\Coding\\\\AIGC''; git add frontend/src/ProjectHome.tsx frontend/src/index.css; git commit -m ''fix: apply btn-pill lift effect to all buttons and project cards''; git push origin main\")",
       "Bash(powershell -Command \"Set-Location ''D:\\\\Coding\\\\AIGC''; git add frontend/src/App.tsx frontend/src/ScriptWorkbench.tsx; git commit -m ''feat: replace tab buttons with segmented control style''; git push origin main\")",
       "Bash(powershell -Command \"Set-Location ''D:\\\\Coding\\\\AIGC''; git add frontend/src/App.tsx; git commit -m ''feat: pill-shaped topbar, more visible dot grid background''; git push origin main\")",
-      "Bash(powershell -Command \"Set-Location ''D:\\\\Coding\\\\AIGC''; git add -A; git commit -m ''feat: E5 logo, card panels in workbench, pill buttons, back button redesign''; git push origin main\")"
+      "Bash(powershell -Command \"Set-Location ''D:\\\\Coding\\\\AIGC''; git add -A; git commit -m ''feat: E5 logo, card panels in workbench, pill buttons, back button redesign''; git push origin main\")",
+      "Bash(powershell -Command \"Set-Location ''D:\\\\Coding\\\\AIGC''; git add -A; git status --short\")",
+      "Bash(powershell -Command \"Set-Location ''D:\\\\Coding\\\\AIGC''; git diff HEAD --name-only; git log --oneline -5\")",
+      "Bash(powershell -Command \"Get-ChildItem ''D:\\\\Coding\\\\AIGC\\\\frontend\\\\public\\\\'' | Select-Object Name; Select-String -Path ''D:\\\\Coding\\\\AIGC\\\\frontend\\\\src\\\\App.tsx'' -Pattern ''logo'' | Select-Object -First 5 | ForEach-Object { $_LineNumber.ToString\\(\\) + '': '' + $_Line }\")"
     ]
   }
 }
