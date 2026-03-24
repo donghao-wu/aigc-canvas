@@ -18,10 +18,13 @@ export default function TextNode({ id, data }: NodeProps) {
   const handleContentChange = (v: string) =>
     setNodes(nds => nds.map(n => n.id === id ? { ...n, data: { ...n.data, content: v } } : n))
 
-  // 自动聚焦 textarea 进入编辑模式
+  // 自动聚焦 + 自动 resize 适配现有内容
   useEffect(() => {
     if (editing && textareaRef.current) {
-      textareaRef.current.focus()
+      const el = textareaRef.current
+      el.focus()
+      el.style.height = 'auto'
+      el.style.height = Math.max(120, el.scrollHeight) + 'px'
     }
   }, [editing])
 
@@ -36,7 +39,7 @@ export default function TextNode({ id, data }: NodeProps) {
   return (
     <div
       style={{
-        width: 240,
+        width: 340,
         background: T.nodeBg,
         border: `1px solid ${T.border}`,
         borderRadius: 12,
@@ -69,8 +72,7 @@ export default function TextNode({ id, data }: NodeProps) {
         />
         {/* 编辑 / 完成 按钮 */}
         <button
-          onMouseDown={e => e.stopPropagation()}
-          onClick={() => setEditing(v => !v)}
+          onMouseDown={e => { e.preventDefault(); e.stopPropagation(); setEditing(v => !v) }}
           style={{
             fontSize: 10, padding: '2px 6px', borderRadius: 4, flexShrink: 0,
             background: editing ? T.btnBg : T.nodeSubtle,
