@@ -243,34 +243,36 @@ async function generateMidjourney(prompt, aspectRatio) {
 
 // ── 影像分析：JSON → 自然语言提示词 ────────────────────────────
 function buildPromptFromAnalysis(a) {
-  const parts = []
+  const parts = [];
   if (a.characters?.length) {
-    parts.push(a.characters.map(c => c.description).filter(Boolean).join('，'))
+    parts.push(a.characters.map(c => c.description).filter(Boolean).join('，'));
   }
-  if (a.setting?.location) parts.push(a.setting.location)
-  if (a.setting?.era) parts.push(`${a.setting.era}风格`)
+  if (a.setting?.location) parts.push(a.setting.location);
+  if (a.setting?.era) parts.push(`${a.setting.era}风格`);
   if (a.lighting?.direction && a.lighting?.tone) {
-    parts.push(`${a.lighting.direction}${a.lighting.tone}光线`)
+    parts.push(`${a.lighting.direction}${a.lighting.tone}光线`);
   } else if (a.lighting?.tone) {
-    parts.push(`${a.lighting.tone}光线`)
+    parts.push(`${a.lighting.tone}光线`);
   }
-  if (a.composition?.shot_type) parts.push(a.composition.shot_type)
-  if (a.style?.aesthetic) parts.push(a.style.aesthetic)
-  if (a.style?.color_palette) parts.push(`${a.style.color_palette}色调`)
-  if (a.style?.film_grain) parts.push('胶片质感')
-  return parts.filter(Boolean).join('，')
+  if (a.composition?.shot_type) parts.push(a.composition.shot_type);
+  if (a.style?.aesthetic) parts.push(a.style.aesthetic);
+  if (a.style?.color_palette) parts.push(`${a.style.color_palette}色调`);
+  if (a.style?.film_grain) parts.push('胶片质感');
+  return parts.filter(Boolean).join('，');
 }
 
 // ── 图片反向拆解接口 ──────────────────────────────────────────
 app.post('/api/analyze-image', authMiddleware, async (req, res) => {
   try {
-    const { base64, mimeType = 'image/jpeg' } = req.body
-    if (!base64) return res.status(400).json({ error: '缺少图片数据' })
+    const { base64, mimeType = 'image/jpeg' } = req.body;
+    const ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    const safeMime = ALLOWED_MIME.includes(mimeType) ? mimeType : 'image/jpeg';
+    if (!base64) return res.status(400).json({ error: '缺少图片数据' });
 
-    const DASHSCOPE_KEY = process.env.DASHSCOPE_API_KEY
-    if (!DASHSCOPE_KEY) return res.status(500).json({ error: '未配置 DASHSCOPE_API_KEY' })
+    const DASHSCOPE_KEY = process.env.DASHSCOPE_API_KEY;
+    if (!DASHSCOPE_KEY) return res.status(500).json({ error: '未配置 DASHSCOPE_API_KEY' });
 
-    console.log('[分析图片] 调用 qwen3-vl-flash...')
+    console.log('[分析图片] 调用 qwen3-vl-flash...');
 
     const response = await axios.post(
       'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
@@ -284,7 +286,7 @@ app.post('/api/analyze-image', authMiddleware, async (req, res) => {
           {
             role: 'user',
             content: [
-              { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}` } },
+              { type: 'image_url', image_url: { url: `data:${safeMime};base64,${base64}` } },
               { type: 'text', text: '请分析这张图片的影像要素，返回JSON。' }
             ]
           }
@@ -297,26 +299,32 @@ app.post('/api/analyze-image', authMiddleware, async (req, res) => {
         },
         timeout: 30000,
       }
-    )
+    );
 
-    const rawText = response.data.choices[0].message.content
-    console.log('[分析图片] 原始响应:', rawText.slice(0, 200))
+    const rawText = response.data?.choices?.[0]?.message?.content;
+    if (!rawText) throw new Error('模型返回了空响应');
+    console.log('[分析图片] 原始响应:', rawText.slice(0, 200));
 
     // 提取 JSON（模型有时会包在 ```json ... ``` 中）
-    const jsonMatch = rawText.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) throw new Error('模型未返回有效JSON')
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('模型未返回有效JSON');
 
-    const analysis = JSON.parse(jsonMatch[0])
-    const reconstructedPrompt = buildPromptFromAnalysis(analysis)
+    let analysis;
+    try {
+      analysis = JSON.parse(jsonMatch[0]);
+    } catch {
+      throw new Error('模型返回的JSON格式无效，无法解析');
+    }
+    const reconstructedPrompt = buildPromptFromAnalysis(analysis);
 
-    console.log('[分析图片] 成功，重组提示词:', reconstructedPrompt.slice(0, 100))
-    res.json({ analysis, reconstructedPrompt })
+    console.log('[分析图片] 成功，重组提示词:', reconstructedPrompt.slice(0, 100));
+    res.json({ analysis, reconstructedPrompt });
   } catch (err) {
-    const msg = err.response?.data?.error?.message || err.message || '分析失败'
-    console.error('[分析图片] 错误:', msg)
-    res.status(500).json({ error: msg })
+    const msg = err.response?.data?.error?.message || err.message || '分析失败';
+    console.error('[分析图片] 错误:', msg);
+    res.status(500).json({ error: msg });
   }
-})
+});
 
 // ── 生图接口 ────────────────────────────────────────────────
 app.post('/api/generate-image', async (req, res) => {
