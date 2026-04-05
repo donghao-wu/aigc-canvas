@@ -223,63 +223,108 @@ function Canvas({ project, onHome, onSwitchToWorkbench }: { project: ProjectRef;
         {/* 顶部标题栏 */}
         <Panel position="top-left">
           <div
-            className="flex items-center gap-3"
+            className="flex items-center gap-2"
             style={{
-              padding: '6px 14px',
+              padding: '5px 10px',
               background: T.headerBg,
               border: `1px solid ${T.border}`,
               borderRadius: 999,
-              backdropFilter: 'blur(20px)',
+              backdropFilter: 'blur(24px)',
+              boxShadow: theme === 'dark' ? '0 4px 24px rgba(0,0,0,0.5)' : '0 4px 20px rgba(0,0,0,0.08)',
+              gap: 6,
             }}
           >
-            <button onClick={onHome} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-              <img src="/logo.svg" style={{ width: 22, height: 22 }} />
-              <span style={{ fontSize: 14, fontWeight: 600, color: T.text }}>壹镜</span>
+            {/* Logo + 返回 */}
+            <button
+              onClick={onHome}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                background: 'none', border: 'none', cursor: 'pointer', padding: '3px 6px',
+                borderRadius: 8, transition: 'background 0.15s',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = T.nodeSubtle)}
+              onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+            >
+              <div style={{
+                width: 22, height: 22, borderRadius: 6,
+                background: 'rgba(201,152,42,0.12)',
+                border: '1px solid rgba(201,152,42,0.2)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <img src="/logo.svg" style={{ width: 13, height: 13 }} />
+              </div>
+              <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>壹镜</span>
             </button>
-            <div style={{ width: 1, height: 16, background: T.border }} />
-            <span style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{project.name}</span>
-            <div style={{ width: 1, height: 16, background: T.border }} />
-            <span style={{
-              fontSize: 13,
-              color: saveStatus === 'saved'  ? T.textMuted
-                   : saveStatus === 'saving' ? 'rgba(200,150,50,0.8)'
-                   : T.textMuted,
+
+            <div style={{ width: 1, height: 14, background: T.border }} />
+            <span style={{ fontSize: 13, fontWeight: 500, color: T.textSub, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{project.name}</span>
+
+            {/* 保存状态 */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 4,
+              padding: '2px 8px', borderRadius: 6,
+              background: saveStatus === 'saving' ? 'rgba(201,152,42,0.1)' : 'transparent',
+              transition: 'background 0.2s',
             }}>
-              {saveStatus === 'saved' ? '已保存' : saveStatus === 'saving' ? '保存中' : '未保存'}
-            </span>
-            <div style={{ width: 1, height: 16, background: T.border }} />
+              <div style={{
+                width: 5, height: 5, borderRadius: '50%',
+                background: saveStatus === 'saved'  ? 'rgba(80,200,100,0.7)'
+                           : saveStatus === 'saving' ? 'rgba(201,152,42,0.9)'
+                           : 'rgba(255,120,100,0.7)',
+                transition: 'background 0.3s',
+              }} />
+              <span style={{
+                fontSize: 11,
+                color: saveStatus === 'saving' ? 'rgba(201,152,42,0.8)' : T.textMuted,
+              }}>
+                {saveStatus === 'saved' ? '已保存' : saveStatus === 'saving' ? '保存中' : '未保存'}
+              </span>
+            </div>
+
+            <div style={{ width: 1, height: 14, background: T.border }} />
+
             {/* 分段控件 */}
             <div style={{
-              display: 'flex', alignItems: 'center', gap: 2,
-              background: T.nodeSubtle, border: `1px solid ${T.border}`,
-              borderRadius: 8, padding: 3,
+              display: 'flex', alignItems: 'center',
+              background: T.nodeSubtle,
+              border: `1px solid ${T.border}`,
+              borderRadius: 8, padding: 3, gap: 2,
             }}>
-              <button
-                onClick={() => setGalleryOpen(o => !o)}
-                style={{
-                  fontSize: 13, fontWeight: galleryOpen ? 600 : 400,
-                  padding: '4px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
-                  background: galleryOpen ? (theme === 'dark' ? 'rgba(255,255,255,0.12)' : '#fff') : 'transparent',
-                  color: galleryOpen ? T.text : T.textSub,
-                  boxShadow: galleryOpen ? (theme === 'dark' ? '0 1px 4px rgba(0,0,0,0.4)' : '0 1px 4px rgba(0,0,0,0.1)') : 'none',
-                  transition: 'background 0.15s, color 0.15s, box-shadow 0.15s',
-                }}
-              >图片库</button>
-              <button
-                onClick={onSwitchToWorkbench}
-                style={{
-                  fontSize: 13, fontWeight: 400,
-                  padding: '4px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
-                  background: 'transparent', color: T.textSub,
-                  transition: 'background 0.15s, color 0.15s',
-                }}
-              >剧本工作台</button>
+              {[
+                { label: '图片库',    active: galleryOpen,    onClick: () => setGalleryOpen(o => !o) },
+                { label: '剧本工作台', active: false,          onClick: onSwitchToWorkbench },
+              ].map(item => (
+                <button
+                  key={item.label}
+                  onClick={item.onClick}
+                  style={{
+                    fontSize: 12, fontWeight: item.active ? 600 : 400,
+                    padding: '4px 11px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                    background: item.active
+                      ? (theme === 'dark' ? 'rgba(201,152,42,0.15)' : 'rgba(184,135,14,0.12)')
+                      : 'transparent',
+                    color: item.active ? T.accent : T.textSub,
+                    boxShadow: item.active ? `0 1px 4px rgba(0,0,0,0.2)` : 'none',
+                    transition: 'all 0.15s',
+                  }}
+                  onMouseEnter={e => { if (!item.active) e.currentTarget.style.color = T.text }}
+                  onMouseLeave={e => { if (!item.active) e.currentTarget.style.color = T.textSub }}
+                >{item.label}</button>
+              ))}
             </div>
-            <div style={{ width: 1, height: 16, background: T.border }} />
+
+            <div style={{ width: 1, height: 14, background: T.border }} />
+
             <button
               onClick={toggle}
               title={theme === 'dark' ? '切换浅色' : '切换深色'}
-              style={{ fontSize: 14, background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: T.textSub }}
+              style={{
+                fontSize: 12, background: 'none', border: 'none', cursor: 'pointer',
+                padding: '3px 8px', color: T.textSub, borderRadius: 6,
+                transition: 'color 0.15s, background 0.15s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.color = T.text; e.currentTarget.style.background = T.nodeSubtle }}
+              onMouseLeave={e => { e.currentTarget.style.color = T.textSub; e.currentTarget.style.background = 'none' }}
             >
               {theme === 'dark' ? '◑ 浅色' : '◑ 深色'}
             </button>
@@ -320,11 +365,12 @@ function Canvas({ project, onHome, onSwitchToWorkbench }: { project: ProjectRef;
             left: menu.x,
             top: menu.y,
             background: T.menuBg,
-            border: `1px solid ${T.border}`,
-            boxShadow: theme === 'dark' ? '0 8px 32px rgba(0,0,0,0.8)' : '0 8px 32px rgba(0,0,0,0.12)',
-            backdropFilter: 'blur(20px)',
-            borderRadius: 8,
+            border: `1px solid ${T.borderMid}`,
+            boxShadow: theme === 'dark' ? '0 12px 40px rgba(0,0,0,0.8), 0 0 0 1px rgba(201,152,42,0.06)' : '0 8px 32px rgba(0,0,0,0.12)',
+            backdropFilter: 'blur(24px)',
+            borderRadius: 12,
             minWidth: 180,
+            overflow: 'hidden',
           }}
           onClick={e => e.stopPropagation()}
         >
@@ -351,27 +397,22 @@ function Canvas({ project, onHome, onSwitchToWorkbench }: { project: ProjectRef;
         <div
           className="select-none"
           style={{
-            position: 'absolute',
-            inset: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            pointerEvents: 'none',
-            gap: 10,
+            position: 'absolute', inset: 0,
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center',
+            pointerEvents: 'none', gap: 12,
           }}
         >
           <div style={{
-            fontSize: 36,
-            opacity: 0.15,
-            lineHeight: 1,
+            width: 56, height: 56, borderRadius: 16,
+            background: 'rgba(201,152,42,0.06)',
+            border: '1px solid rgba(201,152,42,0.12)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 24, opacity: 0.6,
           }}>⊕</div>
-          <div style={{
-            fontSize: 13,
-            color: T.textMuted,
-            opacity: 0.6,
-            letterSpacing: '0.02em',
-          }}>右键画布，创建第一个节点</div>
+          <div style={{ fontSize: 13, color: T.textMuted, letterSpacing: '0.02em' }}>
+            右键画布，创建第一个节点
+          </div>
         </div>
       )}
 

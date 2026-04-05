@@ -444,47 +444,66 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: T.canvasBg, color: T.text, overflow: 'hidden' }}>
 
       {/* 顶栏 */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '0 24px', height: 52, flexShrink: 0, borderBottom: `1px solid ${T.border}`, background: T.headerBg, backdropFilter: 'blur(20px)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 20px', height: 50, flexShrink: 0, borderBottom: `1px solid ${T.border}`, background: T.headerBg, backdropFilter: 'blur(24px)' }}>
+        {/* 返回按钮 */}
         <button
           onClick={onHome}
           className="btn-pill"
-          style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: T.text, background: T.nodeSubtle, border: `1px solid ${T.borderMid}`, borderRadius: 999, cursor: 'pointer', padding: '4px 12px 4px 8px' }}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600,
+            color: T.text,
+            background: 'rgba(201,152,42,0.1)',
+            border: `1px solid rgba(201,152,42,0.2)`,
+            borderRadius: 999, cursor: 'pointer', padding: '5px 12px 5px 8px',
+          }}
         >
-          <img src="/logo.svg" style={{ width: 18, height: 18 }} />
+          <div style={{ width: 20, height: 20, borderRadius: 5, background: 'rgba(201,152,42,0.15)', border: '1px solid rgba(201,152,42,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <img src="/logo.svg" style={{ width: 12, height: 12 }} />
+          </div>
           壹镜
         </button>
+
         <div style={{ width: 1, height: 14, background: T.border }} />
-        <span style={{ fontSize: 13, fontWeight: 500, color: T.text }}>{projectName}</span>
+        <span style={{ fontSize: 13, fontWeight: 500, color: T.textSub, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{projectName}</span>
         <div style={{ width: 1, height: 14, background: T.border }} />
+
         {/* 分段控件 */}
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 2,
-          background: T.nodeSubtle, border: `1px solid ${T.border}`,
-          borderRadius: 8, padding: 3,
-        }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: T.nodeSubtle, border: `1px solid ${T.border}`, borderRadius: 8, padding: 3 }}>
           <button
             onClick={onSwitchToCanvas}
-            style={{
-              fontSize: 13, padding: '4px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
-              background: 'transparent', color: T.textSub,
-              transition: 'background 0.15s, color 0.15s',
-            }}
+            style={{ fontSize: 12, padding: '4px 11px', borderRadius: 6, border: 'none', cursor: 'pointer', background: 'transparent', color: T.textSub, transition: 'color 0.15s' }}
+            onMouseEnter={e => (e.currentTarget.style.color = T.text)}
+            onMouseLeave={e => (e.currentTarget.style.color = T.textSub)}
           >画布</button>
-          <button
-            style={{
-              fontSize: 13, fontWeight: 600, padding: '4px 12px', borderRadius: 6, border: 'none', cursor: 'default',
-              background: theme === 'dark' ? 'rgba(255,255,255,0.12)' : '#fff',
-              color: T.text,
-              boxShadow: theme === 'dark' ? '0 1px 4px rgba(0,0,0,0.4)' : '0 1px 4px rgba(0,0,0,0.1)',
-            }}
-          >剧本工作台</button>
+          <button style={{
+            fontSize: 12, fontWeight: 600, padding: '4px 11px', borderRadius: 6, border: 'none', cursor: 'default',
+            background: theme === 'dark' ? 'rgba(201,152,42,0.15)' : 'rgba(184,135,14,0.12)',
+            color: T.accent,
+            boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+          }}>剧本工作台</button>
         </div>
+
         <div style={{ width: 1, height: 14, background: T.border }} />
-        <span style={{ fontSize: 11, color: wbSaveStatus === 'saved' ? T.textMuted : wbSaveStatus === 'saving' ? 'rgba(200,150,50,0.8)' : T.textMuted }}>
-          {wbSaveStatus === 'saved' ? '已保存' : wbSaveStatus === 'saving' ? '保存中' : '未保存'}
-        </span>
+
+        {/* 保存状态 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <div style={{
+            width: 5, height: 5, borderRadius: '50%',
+            background: wbSaveStatus === 'saved' ? 'rgba(80,200,100,0.7)' : wbSaveStatus === 'saving' ? 'rgba(201,152,42,0.9)' : 'rgba(255,120,100,0.7)',
+            transition: 'background 0.3s',
+          }} />
+          <span style={{ fontSize: 11, color: wbSaveStatus === 'saving' ? 'rgba(201,152,42,0.8)' : T.textMuted }}>
+            {wbSaveStatus === 'saved' ? '已保存' : wbSaveStatus === 'saving' ? '保存中' : '未保存'}
+          </span>
+        </div>
+
         <div style={{ flex: 1 }} />
-        <button onClick={toggle} style={{ fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: T.textSub }}>
+        <button
+          onClick={toggle}
+          style={{ fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px', borderRadius: 6, color: T.textSub, transition: 'color 0.15s, background 0.15s' }}
+          onMouseEnter={e => { e.currentTarget.style.color = T.text; e.currentTarget.style.background = T.nodeSubtle }}
+          onMouseLeave={e => { e.currentTarget.style.color = T.textSub; e.currentTarget.style.background = 'none' }}
+        >
           {theme === 'dark' ? '◑ 浅色' : '◑ 深色'}
         </button>
       </div>

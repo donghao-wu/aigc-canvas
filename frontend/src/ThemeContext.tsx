@@ -16,38 +16,41 @@ export interface ThemeTokens {
   btnText:      string
   headerBg:     string
   menuBg:       string
+  accent:       string
 }
 
 const dark: ThemeTokens = {
-  canvasBg:   '#000',
-  nodeBg:     '#111',
+  canvasBg:   '#0D0B08',
+  nodeBg:     '#181410',
   nodeSubtle: 'rgba(255,255,255,0.04)',
-  border:     'rgba(255,255,255,0.09)',
-  borderMid:  'rgba(255,255,255,0.15)',
-  text:       'rgba(255,255,255,0.82)',
-  textSub:    'rgba(255,255,255,0.38)',
-  textMuted:  'rgba(255,255,255,0.2)',
-  inputBg:    'rgba(255,255,255,0.05)',
-  btnBg:      'rgba(255,255,255,0.9)',
-  btnText:    '#000',
-  headerBg:   'rgba(0,0,0,0.88)',
-  menuBg:     'rgba(20,20,20,0.96)',
+  border:     'rgba(255,255,255,0.08)',
+  borderMid:  'rgba(255,255,255,0.14)',
+  text:       'rgba(255,248,230,0.9)',
+  textSub:    'rgba(255,236,200,0.44)',
+  textMuted:  'rgba(255,225,170,0.24)',
+  inputBg:    'rgba(255,255,255,0.055)',
+  btnBg:      '#C9982A',
+  btnText:    '#0D0B08',
+  headerBg:   'rgba(13,11,8,0.92)',
+  menuBg:     'rgba(20,16,10,0.97)',
+  accent:     '#C9982A',
 }
 
 const light: ThemeTokens = {
-  canvasBg:   '#f0ece3',   // 温暖米黄
-  nodeBg:     '#ffffff',
-  nodeSubtle: 'rgba(0,0,0,0.03)',
-  border:     'rgba(0,0,0,0.09)',
-  borderMid:  'rgba(0,0,0,0.16)',
-  text:       'rgba(0,0,0,0.82)',
-  textSub:    'rgba(0,0,0,0.42)',
-  textMuted:  'rgba(0,0,0,0.26)',
-  inputBg:    'rgba(0,0,0,0.04)',
-  btnBg:      'rgba(0,0,0,0.85)',
+  canvasBg:   '#EDE8DC',
+  nodeBg:     '#FEFCF5',
+  nodeSubtle: 'rgba(80,60,20,0.05)',
+  border:     'rgba(80,60,20,0.1)',
+  borderMid:  'rgba(80,60,20,0.18)',
+  text:       'rgba(22,16,6,0.88)',
+  textSub:    'rgba(40,28,8,0.5)',
+  textMuted:  'rgba(40,28,8,0.3)',
+  inputBg:    'rgba(80,60,20,0.05)',
+  btnBg:      '#B8870E',
   btnText:    '#fff',
-  headerBg:   'rgba(242,242,244,0.92)',
-  menuBg:     'rgba(255,255,255,0.97)',
+  headerBg:   'rgba(237,232,220,0.93)',
+  menuBg:     'rgba(254,252,245,0.97)',
+  accent:     '#B8870E',
 }
 
 interface ThemeCtx {
