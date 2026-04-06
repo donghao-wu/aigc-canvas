@@ -559,6 +559,21 @@ app.post('/api/upload', authMiddleware, upload.single('image'), (req, res) => {
   res.json({ url, filename: req.file.filename, timestamp });
 });
 
+app.delete('/api/upload/:filename', authMiddleware, (req, res) => {
+  const { filename } = req.params;
+  // Basic safety: prevent path traversal
+  if (!filename || filename.includes('/') || filename.includes('\\') || filename.includes('..')) {
+    return res.status(400).json({ error: '无效文件名' });
+  }
+  const filePath = path.join(UPLOADS_DIR, filename);
+  try {
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: '删除失败' });
+  }
+});
+
 // ── 图片库接口 ────────────────────────────────────────────────
 app.get('/api/gallery', (req, res) => {
   // Generated images from metadata
