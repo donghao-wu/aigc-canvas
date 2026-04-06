@@ -11,7 +11,8 @@ export interface PromptAnalysis {
   style: { aesthetic: string; color_palette: string; film_grain: boolean }
 }
 
-export function buildPrompt(a: PromptAnalysis): string {
+export function buildPrompt(a: PromptAnalysis | null | undefined): string {
+  if (!a) return ''
   const parts: string[] = []
   if (a.characters?.length)
     parts.push(a.characters.map(c => c.description).filter(Boolean).join('，'))
@@ -31,8 +32,19 @@ export default function PromptAnalysisNode({ id, data }: NodeProps) {
   const { T, theme } = useTheme()
   const { setNodes, setEdges, getNode } = useReactFlow()
 
-  const analysis = (data as any).analysis as PromptAnalysis
-  const reconstructedPrompt = (data as any).reconstructedPrompt as string ?? ''
+  const analysis = ((data as any).analysis ?? {
+    characters: [],
+    setting: { location: '', era: '', time_of_day: '' },
+    lighting: { type: '', direction: '', tone: '' },
+    composition: { shot_type: '', angle: '' },
+    style: { aesthetic: '', color_palette: '', film_grain: false },
+  }) as PromptAnalysis
+  const reconstructedPrompt = ((data as any).reconstructedPrompt ?? '') as string
+
+  const SETTING_LABELS: Record<string, string> = { location: '地点', era: '时代', time_of_day: '时间' }
+  const LIGHTING_LABELS: Record<string, string> = { type: '光源', direction: '方向', tone: '色调' }
+  const COMPOSITION_LABELS: Record<string, string> = { shot_type: '景别', angle: '角度' }
+  const STYLE_LABELS: Record<string, string> = { aesthetic: '风格', color_palette: '色调' }
 
   const [tab, setTab] = useState<'fields' | 'json'>('fields')
   const [jsonText, setJsonText] = useState(() => JSON.stringify(analysis, null, 2))
@@ -165,7 +177,7 @@ export default function PromptAnalysisNode({ id, data }: NodeProps) {
               {(['location', 'era', 'time_of_day'] as const).map(k => (
                 <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                   <span style={{ fontSize: 10, color: T.textMuted, width: 36, flexShrink: 0 }}>
-                    {k === 'location' ? '地点' : k === 'era' ? '时代' : '时间'}
+                    {SETTING_LABELS[k]}
                   </span>
                   <input value={analysis?.setting?.[k] ?? ''} onChange={e => handleFieldChange(`setting.${k}`, e.target.value)} style={inputStyle} />
                 </div>
@@ -178,7 +190,7 @@ export default function PromptAnalysisNode({ id, data }: NodeProps) {
               {(['type', 'direction', 'tone'] as const).map(k => (
                 <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                   <span style={{ fontSize: 10, color: T.textMuted, width: 36, flexShrink: 0 }}>
-                    {k === 'type' ? '光源' : k === 'direction' ? '方向' : '色调'}
+                    {LIGHTING_LABELS[k]}
                   </span>
                   <input value={analysis?.lighting?.[k] ?? ''} onChange={e => handleFieldChange(`lighting.${k}`, e.target.value)} style={inputStyle} />
                 </div>
@@ -191,7 +203,7 @@ export default function PromptAnalysisNode({ id, data }: NodeProps) {
               {(['shot_type', 'angle'] as const).map(k => (
                 <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                   <span style={{ fontSize: 10, color: T.textMuted, width: 36, flexShrink: 0 }}>
-                    {k === 'shot_type' ? '景别' : '角度'}
+                    {COMPOSITION_LABELS[k]}
                   </span>
                   <input value={analysis?.composition?.[k] ?? ''} onChange={e => handleFieldChange(`composition.${k}`, e.target.value)} style={inputStyle} />
                 </div>
@@ -204,7 +216,7 @@ export default function PromptAnalysisNode({ id, data }: NodeProps) {
               {(['aesthetic', 'color_palette'] as const).map(k => (
                 <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                   <span style={{ fontSize: 10, color: T.textMuted, width: 36, flexShrink: 0 }}>
-                    {k === 'aesthetic' ? '风格' : '色调'}
+                    {STYLE_LABELS[k]}
                   </span>
                   <input value={analysis?.style?.[k] ?? ''} onChange={e => handleFieldChange(`style.${k}`, e.target.value)} style={inputStyle} />
                 </div>
