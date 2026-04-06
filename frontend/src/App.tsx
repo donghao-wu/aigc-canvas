@@ -123,6 +123,70 @@ function Canvas({ project, onHome, onSwitchToWorkbench }: { project: ProjectRef;
   const wrapperRef = useRef<HTMLDivElement>(null)
   const { screenToFlowPosition, zoomIn, zoomOut } = useReactFlow()
 
+  const [isDraggingImage, setIsDraggingImage] = useState(false)
+  const [uploadingDrop,   setUploadingDrop]   = useState(false)
+
+  const handleCanvasDragOver = useCallback((e: React.DragEvent) => {
+    const hasImage = Array.from(e.dataTransfer.items).some(
+      item => item.kind === 'file' && item.type.startsWith('image/')
+    )
+    if (hasImage) {
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'copy'
+    }
+  }, [])
+
+  const handleCanvasDragEnter = useCallback((e: React.DragEvent) => {
+    const hasImage = Array.from(e.dataTransfer.items).some(
+      item => item.kind === 'file' && item.type.startsWith('image/')
+    )
+    if (hasImage) setIsDraggingImage(true)
+  }, [])
+
+  const handleCanvasDragLeave = useCallback((e: React.DragEvent) => {
+    // Only clear if leaving the wrapper entirely (not entering a child)
+    if (!e.currentTarget.contains(e.relatedTarget as unknown as globalThis.Node)) {
+      setIsDraggingImage(false)
+    }
+  }, [])
+
+  const handleCanvasDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDraggingImage(false)
+
+    const files = Array.from(e.dataTransfer.files).filter(
+      f => f.type.startsWith('image/')
+    )
+    if (files.length === 0) return
+
+    setUploadingDrop(true)
+    try {
+      const file = files[0] // upload first image only
+      const formData = new FormData()
+      formData.append('image', file)
+      const { data: uploaded } = await axios.post('/api/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+
+      const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY })
+      const newId = `img_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`
+      setNodes(nds => [...nds, {
+        id: newId,
+        type: 'image',
+        position: pos,
+        data: {
+          imageUrl: uploaded.url,
+          prompt: file.name,
+          name: file.name.replace(/\.[^/.]+$/, ''),
+        },
+      }])
+    } catch (err: any) {
+      console.error('Upload failed:', err)
+    } finally {
+      setUploadingDrop(false)
+    }
+  }, [screenToFlowPosition, setNodes])
+
   // 加载项目数据
   const loadProject = useCallback(() => {
     initialized.current = false
@@ -140,6 +204,20 @@ function Canvas({ project, onHome, onSwitchToWorkbench }: { project: ProjectRef;
     window.addEventListener('canvas-refresh', loadProject)
     return () => window.removeEventListener('canvas-refresh', loadProject)
   }, [loadProject])
+
+  useEffect(() => {
+    const handler = (e: CustomEvent) => {
+      const { node } = e.detail
+      if (!node) return
+      setNodes(nds => {
+        // Avoid duplicate ids
+        if (nds.find(n => n.id === node.id)) return nds
+        return [...nds, node]
+      })
+    }
+    window.addEventListener('add-node-to-canvas', handler as EventListener)
+    return () => window.removeEventListener('add-node-to-canvas', handler as EventListener)
+  }, [setNodes])
 
   // 自动保存（2 秒防抖）
   useEffect(() => {
@@ -195,7 +273,50 @@ function Canvas({ project, onHome, onSwitchToWorkbench }: { project: ProjectRef;
   }, [menu, setNodes])
 
   return (
-    <div ref={wrapperRef} className="w-screen h-screen" onClick={() => setMenu(null)}>
+    <div
+      ref={wrapperRef}
+      className="w-screen h-screen"
+      style={{ position: 'relative' }}
+      onClick={() => setMenu(null)}
+      onDragOver={handleCanvasDragOver}
+      onDragEnter={handleCanvasDragEnter}
+      onDragLeave={handleCanvasDragLeave}
+      onDrop={handleCanvasDrop}
+    >
+      {/* Drop overlay */}
+      {isDraggingImage && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 999, pointerEvents: 'none',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(201,152,42,0.08)',
+          border: '3px dashed rgba(201,152,42,0.6)',
+          borderRadius: 0,
+        }}>
+          <div style={{
+            background: 'rgba(13,11,8,0.85)', borderRadius: 12,
+            padding: '16px 28px', textAlign: 'center',
+            border: '1px solid rgba(201,152,42,0.4)',
+            backdropFilter: 'blur(8px)',
+          }}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>🖼️</div>
+            <div style={{ fontSize: 14, color: 'rgba(201,152,42,0.9)', fontWeight: 600 }}>
+              释放以上传图片
+            </div>
+          </div>
+        </div>
+      )}
+      {uploadingDrop && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 998, pointerEvents: 'none',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(13,11,8,0.3)',
+        }}>
+          <div style={{ fontSize: 13, color: 'rgba(201,152,42,0.9)' }}>
+            <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite', marginRight: 8 }}>⟳</span>
+            上传中...
+          </div>
+        </div>
+      )}
       <ReactFlow
         nodes={nodes}
         edges={edges}
