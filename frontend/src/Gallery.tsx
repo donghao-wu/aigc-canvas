@@ -9,6 +9,7 @@ interface GalleryItem {
   model: string
   refCount: number
   createdAt: number
+  source: 'generated' | 'uploaded'
 }
 
 const MODEL_SHORT: Record<string, string> = {
@@ -31,6 +32,10 @@ export default function Gallery({ visible, onClose }: { visible: boolean; onClos
   const [loading, setLoading]   = useState(false)
   const [lightbox, setLightbox] = useState<GalleryItem | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+  const [uploading,   setUploading]   = useState(false)
+  const [uploadErr,   setUploadErr]   = useState('')
+  const [dropHover,   setDropHover]   = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -52,11 +57,54 @@ export default function Gallery({ visible, onClose }: { visible: boolean; onClos
     return () => window.removeEventListener('gallery-refresh', handler)
   }, [load])
 
-  const deleteItem = async (id: string, e: React.MouseEvent) => {
+  const handleUploadFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return
+    const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'))
+    if (imageFiles.length === 0) return
+    setUploading(true)
+    setUploadErr('')
+    try {
+      for (const file of imageFiles) {
+        const formData = new FormData()
+        formData.append('image', file)
+        await axios.post('/api/upload', formData)
+      }
+      await load() // refresh gallery
+    } catch (err: any) {
+      const msg = err.response?.data?.error || '上传失败'
+      setUploadErr(msg)
+      setTimeout(() => setUploadErr(''), 4000)
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const sendToCanvas = (item: GalleryItem, e: React.MouseEvent) => {
     e.stopPropagation()
-    await axios.delete(`/api/gallery/${id}`)
-    setItems(prev => prev.filter(i => i.id !== id))
-    if (lightbox?.id === id) setLightbox(null)
+    const newId = `img_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`
+    const node = {
+      id: newId,
+      type: 'imageNode',
+      position: { x: 4000 + Math.random() * 200, y: 2000 + Math.random() * 200 },
+      data: {
+        imageUrl: item.url,
+        prompt: item.prompt || item.url.split('/').pop() || '',
+        name: (item.prompt || item.url.split('/').pop() || '上传图片').slice(0, 20),
+      },
+    }
+    window.dispatchEvent(new CustomEvent('add-node-to-canvas', { detail: { node } }))
+  }
+
+  const deleteItem = async (item: GalleryItem, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (item.source === 'uploaded') {
+      const filename = item.url.split('/').pop()!
+      await axios.delete(`/api/upload/${filename}`)
+    } else {
+      await axios.delete(`/api/gallery/${item.id}`)
+    }
+    setItems(prev => prev.filter(i => i.id !== item.id))
+    if (lightbox?.id === item.id) setLightbox(null)
   }
 
   const download = (item: GalleryItem, e?: React.MouseEvent) => {
@@ -125,6 +173,63 @@ export default function Gallery({ visible, onClose }: { visible: boolean; onClos
 
         {/* 内容区 */}
         <div className="flex-1 overflow-y-auto p-3" style={{ scrollbarWidth: 'thin' }}>
+
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            style={{ display: 'none' }}
+            onChange={e => handleUploadFiles(e.target.files)}
+          />
+
+          {/* Upload zone */}
+          <div
+            onClick={() => fileInputRef.current?.click()}
+            onDragOver={e => { e.preventDefault(); setDropHover(true) }}
+            onDragLeave={() => setDropHover(false)}
+            onDrop={e => {
+              e.preventDefault()
+              setDropHover(false)
+              handleUploadFiles(e.dataTransfer.files)
+            }}
+            style={{
+              marginBottom: 10, borderRadius: 8, cursor: 'pointer',
+              border: `1.5px dashed ${dropHover ? 'rgba(201,152,42,0.8)' : T.border}`,
+              background: dropHover ? 'rgba(201,152,42,0.08)' : 'transparent',
+              padding: '10px 8px',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              transition: 'all 0.15s',
+              minHeight: 52,
+            }}
+          >
+            {uploading ? (
+              <span style={{ fontSize: 12, color: 'rgba(201,152,42,0.8)' }}>
+                <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite', marginRight: 6 }}>⟳</span>
+                上传中...
+              </span>
+            ) : (
+              <>
+                <span style={{ fontSize: 16, opacity: 0.6 }}>↑</span>
+                <span style={{ fontSize: 12, color: T.textMuted }}>
+                  {dropHover ? '释放以上传' : '拖拽或点击上传图片'}
+                </span>
+              </>
+            )}
+          </div>
+
+          {/* Upload error */}
+          {uploadErr && (
+            <div style={{
+              marginBottom: 8, padding: '5px 8px', borderRadius: 6, fontSize: 11,
+              background: 'rgba(239,68,68,0.08)', color: 'rgba(239,68,68,0.85)',
+              border: '1px solid rgba(239,68,68,0.2)',
+            }}>
+              {uploadErr}
+            </div>
+          )}
+
           {loading && items.length === 0 && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 128, color: T.textMuted, fontSize: 13 }}>
               加载中...
@@ -158,6 +263,19 @@ export default function Gallery({ visible, onClose }: { visible: boolean; onClos
                   loading="lazy"
                 />
 
+                {/* Source badge (always visible, top-left) */}
+                <div style={{
+                  position: 'absolute', top: 4, left: 4, zIndex: 1,
+                  fontSize: 9, padding: '1px 5px', borderRadius: 3,
+                  fontWeight: 600, letterSpacing: '0.5px',
+                  background: item.source === 'generated'
+                    ? 'rgba(201,152,42,0.85)'
+                    : 'rgba(120,120,120,0.85)',
+                  color: item.source === 'generated' ? '#0D0B08' : '#fff',
+                }}>
+                  {item.source === 'generated' ? 'AI' : '上传'}
+                </div>
+
                 {/* hover 遮罩（叠在图片上，保持深色渐变） */}
                 <div
                   className="absolute inset-0 flex flex-col justify-between p-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -165,7 +283,7 @@ export default function Gallery({ visible, onClose }: { visible: boolean; onClos
                 >
                   <div className="flex justify-end">
                     <button
-                      onClick={e => deleteItem(item.id, e)}
+                      onClick={e => deleteItem(item, e)}
                       style={{
                         width: 20, height: 20, borderRadius: '50%',
                         background: 'rgba(239,68,68,0.85)',
@@ -177,16 +295,27 @@ export default function Gallery({ visible, onClose }: { visible: boolean; onClos
                   </div>
 
                   <div className="flex items-end justify-between gap-1">
-                    <span
-                      style={{
-                        fontSize: 11, padding: '2px 6px', borderRadius: 4, fontWeight: 500,
-                        background: 'rgba(16,185,129,0.75)', color: '#fff', maxWidth: 70,
-                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {MODEL_SHORT[item.model] ?? item.model.split('-')[0]}
-                      {item.refCount > 0 ? ` +${item.refCount}` : ''}
-                    </span>
+                    {item.source === 'generated' ? (
+                      <span
+                        style={{
+                          fontSize: 11, padding: '2px 6px', borderRadius: 4, fontWeight: 500,
+                          background: 'rgba(16,185,129,0.75)', color: '#fff', maxWidth: 70,
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {MODEL_SHORT[item.model] ?? item.model.split('-')[0]}
+                        {item.refCount > 0 ? ` +${item.refCount}` : ''}
+                      </span>
+                    ) : (
+                      <button
+                        onClick={e => sendToCanvas(item, e)}
+                        style={{
+                          fontSize: 10, padding: '2px 6px', borderRadius: 4,
+                          background: 'rgba(201,152,42,0.75)', color: '#0D0B08',
+                          border: 'none', cursor: 'pointer', fontWeight: 600,
+                        }}
+                      >→画布</button>
+                    )}
                     <button
                       onClick={e => download(item, e)}
                       style={{
@@ -239,7 +368,7 @@ export default function Gallery({ visible, onClose }: { visible: boolean; onClos
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
                 <button
-                  onClick={e => deleteItem(lightbox.id, e)}
+                  onClick={e => deleteItem(lightbox, e)}
                   style={{
                     padding: '5px 12px', borderRadius: 8, fontSize: 12, cursor: 'pointer',
                     background: 'rgba(239,68,68,0.1)', color: '#fca5a5',
