@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const multer = require('multer');
 
 dotenv.config();
 
@@ -95,6 +96,9 @@ const GENERATED_DIR = path.join(__dirname, 'generated');
 const METADATA_FILE = path.join(GENERATED_DIR, 'metadata.json');
 if (!fs.existsSync(GENERATED_DIR)) fs.mkdirSync(GENERATED_DIR, { recursive: true });
 
+const UPLOADS_DIR = path.join(__dirname, 'uploads');
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
 function loadMeta() {
   try { return JSON.parse(fs.readFileSync(METADATA_FILE, 'utf8')); } catch { return []; }
 }
@@ -115,6 +119,7 @@ function persistImage(base64, mimeType, prompt, model, refCount) {
 
 // 静态文件服务
 app.use('/generated', express.static(GENERATED_DIR));
+app.use('/uploads', express.static(UPLOADS_DIR));
 
 // ── 中文检测 + 自动翻译（Sora 只接受英文）──────────────────────
 async function ensureEnglish(text) {
