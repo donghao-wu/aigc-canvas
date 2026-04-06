@@ -125,6 +125,7 @@ function Canvas({ project, onHome, onSwitchToWorkbench }: { project: ProjectRef;
 
   const [isDraggingImage, setIsDraggingImage] = useState(false)
   const [uploadingDrop,   setUploadingDrop]   = useState(false)
+  const [dropUploadErr,   setDropUploadErr]   = useState('')
 
   const handleCanvasDragOver = useCallback((e: React.DragEvent) => {
     const hasImage = Array.from(e.dataTransfer.items).some(
@@ -179,7 +180,9 @@ function Canvas({ project, onHome, onSwitchToWorkbench }: { project: ProjectRef;
         },
       }])
     } catch (err: any) {
-      console.error('Upload failed:', err)
+      const msg = err.response?.data?.error || '上传失败'
+      setDropUploadErr(msg)
+      setTimeout(() => setDropUploadErr(''), 3000)
     } finally {
       setUploadingDrop(false)
     }
@@ -313,6 +316,16 @@ function Canvas({ project, onHome, onSwitchToWorkbench }: { project: ProjectRef;
             <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite', marginRight: 8 }}>⟳</span>
             上传中...
           </div>
+        </div>
+      )}
+      {dropUploadErr && (
+        <div style={{
+          position: 'absolute', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          zIndex: 999, pointerEvents: 'none',
+          background: 'rgba(239,68,68,0.9)', color: '#fff',
+          padding: '6px 16px', borderRadius: 8, fontSize: 13,
+        }}>
+          {dropUploadErr}
         </div>
       )}
       <ReactFlow
