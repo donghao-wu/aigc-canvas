@@ -5,14 +5,16 @@ import EditableTitle from './EditableTitle'
 import { useTheme } from '../ThemeContext'
 
 export default function ImageNode({ id, data }: NodeProps) {
-  const { base64, mimeType, prompt } = data as { base64: string; mimeType: string; prompt: string }
+  const { base64, mimeType, prompt, imageUrl } = data as {
+    base64?: string; mimeType?: string; prompt?: string; imageUrl?: string
+  }
   const { setNodes, setEdges, getNode } = useReactFlow()
   const { T } = useTheme()
   const nodeName = (data as Record<string, unknown>)?.name as string || '图像'
   const handleRename = (v: string) =>
     setNodes(nds => nds.map(n => n.id === id ? { ...n, data: { ...n.data, name: v } } : n))
 
-  const imgSrc = `data:${mimeType || 'image/jpeg'};base64,${base64}`
+  const imgSrc = imageUrl ?? `data:${mimeType || 'image/jpeg'};base64,${base64}`
   const [hovered,    setHovered]    = useState(false)
   const [lightbox,   setLightbox]   = useState(false)
   const [analyzing,  setAnalyzing]  = useState(false)
@@ -22,17 +24,31 @@ export default function ImageNode({ id, data }: NodeProps) {
     const a = document.createElement('a')
     a.href = imgSrc
     a.download = `${nodeName}-${Date.now()}.jpg`
+    if (imageUrl) a.target = '_blank'
     a.click()
-  }, [imgSrc, nodeName])
+  }, [imgSrc, nodeName, imageUrl])
 
   const handleAnalyze = useCallback(async () => {
-    if (analyzing || !base64) return
+    if (analyzing) return
+    if (!base64 && !imageUrl) return
     setAnalyzing(true)
     setAnalyzeErr('')
     try {
+      let b64 = base64
+      let mime = mimeType || 'image/jpeg'
+
+      // If this is an uploaded image (imageUrl, no base64), fetch and convert
+      if (!b64 && imageUrl) {
+        const resp = await fetch(imageUrl)
+        const blob = await resp.blob()
+        mime = blob.type || 'image/jpeg'
+        const buf = await blob.arrayBuffer()
+        b64 = btoa(String.fromCharCode(...new Uint8Array(buf)))
+      }
+
       const { data: result } = await axios.post(
         '/api/analyze-image',
-        { base64, mimeType: mimeType || 'image/jpeg' }
+        { base64: b64, mimeType: mime }
       )
 
       const self = getNode(id)
@@ -56,7 +72,7 @@ export default function ImageNode({ id, data }: NodeProps) {
     } finally {
       setAnalyzing(false)
     }
-  }, [id, base64, mimeType, analyzing, getNode, setNodes, setEdges])
+  }, [id, base64, mimeType, imageUrl, analyzing, getNode, setNodes, setEdges])
 
   return (
     <>
@@ -86,7 +102,7 @@ export default function ImageNode({ id, data }: NodeProps) {
           {/* 拆解按钮 */}
           <button
             onClick={handleAnalyze}
-            disabled={analyzing}
+            disabled={analyzing || (!base64 && !imageUrl)}
             title="反向拆解提示词"
             style={{
               fontSize: 10, padding: '2px 7px', borderRadius: 4,
