@@ -121,6 +121,25 @@ function persistImage(base64, mimeType, prompt, model, refCount) {
 app.use('/generated', express.static(GENERATED_DIR));
 app.use('/uploads', express.static(UPLOADS_DIR));
 
+// ── 图片上传配置 ─────────────────────────────────────────────
+const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
+    filename: (_req, file, cb) => {
+      const ts = Date.now();
+      const safe = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+      cb(null, `upload-${ts}-${safe}`);
+    },
+  }),
+  fileFilter: (_req, file, cb) => {
+    if (ALLOWED_MIME_TYPES.includes(file.mimetype)) cb(null, true);
+    else cb(new Error('不支持的文件类型，请上传 jpg/png/webp/gif'));
+  },
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
+});
+
 // ── 中文检测 + 自动翻译（Sora 只接受英文）──────────────────────
 async function ensureEnglish(text) {
   if (!/[\u4e00-\u9fff\u3040-\u30ff]/.test(text)) return text; // 无中日文直接返回
@@ -525,6 +544,25 @@ app.get('/api/models', (req, res) => {
       { id: 'sora_video2-landscape-15s', name: 'Sora 2 横屏 长', desc: '15s', group: 'Sora 2' },
     ],
   });
+});
+
+// ── 图片上传接口 ──────────────────────────────────────────────
+app.post('/api/upload', authMiddleware, upload.single('image'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: '没有收到文件' });
+  const url = `/uploads/${req.file.filename}`;
+  const timestamp = Date.now();
+  res.json({ url, filename: req.file.filename, timestamp });
+});
+
+// Multer error handler (file size / type)
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ error: '文件不能超过 20MB' });
+  }
+  if (err && err.message) {
+    return res.status(400).json({ error: err.message });
+  }
+  next(err);
 });
 
 // ── 图片库接口 ────────────────────────────────────────────────
