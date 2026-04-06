@@ -43,7 +43,10 @@ export default function ImageNode({ id, data }: NodeProps) {
         const blob = await resp.blob()
         mime = blob.type || 'image/jpeg'
         const buf = await blob.arrayBuffer()
-        b64 = btoa(String.fromCharCode(...new Uint8Array(buf)))
+        const bytes = new Uint8Array(buf)
+        let binary = ''
+        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+        b64 = btoa(binary)
       }
 
       const { data: result } = await axios.post(
