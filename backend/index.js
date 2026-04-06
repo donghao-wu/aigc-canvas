@@ -129,8 +129,13 @@ const upload = multer({
     destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
     filename: (_req, file, cb) => {
       const ts = Date.now();
-      const safe = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-      cb(null, `upload-${ts}-${safe}`);
+      const extByMime = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif' };
+      const ext = extByMime[file.mimetype] ?? '.bin';
+      const base = file.originalname
+        .replace(/\.[^/.]+$/, '')           // strip extension
+        .replace(/[^a-zA-Z0-9_-]/g, '_')   // sanitize
+        .slice(0, 64);                       // limit length
+      cb(null, `upload-${ts}-${base}${ext}`);
     },
   }),
   fileFilter: (_req, file, cb) => {
@@ -554,17 +559,6 @@ app.post('/api/upload', authMiddleware, upload.single('image'), (req, res) => {
   res.json({ url, filename: req.file.filename, timestamp });
 });
 
-// Multer error handler (file size / type)
-app.use((err, req, res, next) => {
-  if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
-    return res.status(413).json({ error: '文件不能超过 20MB' });
-  }
-  if (err && err.message) {
-    return res.status(400).json({ error: err.message });
-  }
-  next(err);
-});
-
 // ── 图片库接口 ────────────────────────────────────────────────
 app.get('/api/gallery', (req, res) => {
   const meta = loadMeta();
@@ -896,6 +890,17 @@ app.post('/api/asset-agent', async (req, res) => {
 // ── 健康检查 ─────────────────────────────────────────────────
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() });
+});
+
+// ── 全局错误处理（multer 上传错误等）─────────────────────────
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ error: '文件不能超过 20MB' });
+  }
+  if (err instanceof multer.MulterError || (err && err.message && !err.status)) {
+    return res.status(400).json({ error: err.message });
+  }
+  next(err);
 });
 
 const PORT = process.env.PORT || 3001;
