@@ -10,6 +10,7 @@ backend/.env
 # Generated files & user data
 backend/generated/
 backend/projects/
+backend/uploads/
 
 # Build output
 frontend/dist/
