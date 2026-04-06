@@ -561,15 +561,45 @@ app.post('/api/upload', authMiddleware, upload.single('image'), (req, res) => {
 
 // ── 图片库接口 ────────────────────────────────────────────────
 app.get('/api/gallery', (req, res) => {
+  // Generated images from metadata
   const meta = loadMeta();
-  res.json(meta.map(m => ({
+  const generated = meta.map(m => ({
     id: m.id,
     url: `/generated/${m.filename}`,
     prompt: m.prompt,
     model: m.model,
     refCount: m.refCount || 0,
     createdAt: m.createdAt,
-  })));
+    source: 'generated',
+  }));
+
+  // Uploaded images from uploads/ directory
+  let uploaded = [];
+  try {
+    const files = fs.readdirSync(UPLOADS_DIR);
+    uploaded = files
+      .filter(f => /\.(jpg|jpeg|png|webp|gif)$/i.test(f))
+      .map(filename => {
+        // Extract timestamp from filename: upload-{timestamp}-{name}
+        const match = filename.match(/^upload-(\d+)-/);
+        const createdAt = match ? parseInt(match[1], 10) : 0;
+        return {
+          id: `upload_${filename}`,
+          url: `/uploads/${filename}`,
+          prompt: '',
+          model: '',
+          refCount: 0,
+          createdAt,
+          source: 'uploaded',
+        };
+      });
+  } catch (e) {
+    // uploads dir may not exist yet, ignore
+  }
+
+  // Merge and sort by createdAt descending
+  const all = [...generated, ...uploaded].sort((a, b) => b.createdAt - a.createdAt);
+  res.json(all);
 });
 
 app.delete('/api/gallery/:id', (req, res) => {
