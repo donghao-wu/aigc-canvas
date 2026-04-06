@@ -164,15 +164,13 @@ function Canvas({ project, onHome, onSwitchToWorkbench }: { project: ProjectRef;
       const file = files[0] // upload first image only
       const formData = new FormData()
       formData.append('image', file)
-      const { data: uploaded } = await axios.post('/api/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
+      const { data: uploaded } = await axios.post('/api/upload', formData)
 
       const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY })
       const newId = `img_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`
       setNodes(nds => [...nds, {
         id: newId,
-        type: 'image',
+        type: 'imageNode',
         position: pos,
         data: {
           imageUrl: uploaded.url,
