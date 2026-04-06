@@ -27,6 +27,7 @@ import ImageGenNode from './nodes/ImageGenNode'
 import VideoGenNode from './nodes/VideoGenNode'
 import ImageNode from './nodes/ImageNode'
 import TextNode from './nodes/TextNode'
+import PromptAnalysisNode from './nodes/PromptAnalysisNode'
 import Gallery from './Gallery'
 import ScriptWorkbench from './ScriptWorkbench'
 
@@ -35,6 +36,7 @@ const nodeTypes = {
   videoGen: VideoGenNode,
   imageNode: ImageNode,
   textNode: TextNode,
+  promptAnalysis: PromptAnalysisNode,
 }
 
 function DeleteEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition }: EdgeProps) {
@@ -89,9 +91,10 @@ const edgeTypes = { default: DeleteEdge }
 let nodeCounter = 2
 
 const MENU_ITEMS = [
-  { type: 'imageGen', label: '生图',   desc: 'NanoBanana · 文字 / 参考图' },
-  { type: 'videoGen', label: '生视频', desc: 'Sora 2 · Veo 3.1' },
-  { type: 'textNode', label: '文本',   desc: '自由文字 · 便签 / 注释' },
+  { type: 'imageGen',       label: '生图',        desc: 'NanoBanana · 文字 / 参考图' },
+  { type: 'videoGen',       label: '生视频',      desc: 'Sora 2 · Veo 3.1' },
+  { type: 'textNode',       label: '文本',        desc: '自由文字 · 便签 / 注释' },
+  { type: 'promptAnalysis', label: '结构化提示词', desc: '反向拆解 · 可视化编辑' },
 ]
 
 const SHORTCUTS = [

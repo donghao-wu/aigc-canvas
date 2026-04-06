@@ -4,11 +4,6 @@ import axios from 'axios'
 import EditableTitle from './EditableTitle'
 import { useTheme } from '../ThemeContext'
 
-function authHeaders(): Record<string, string> {
-  const token = localStorage.getItem('auth_token')
-  return token ? { Authorization: `Bearer ${token}` } : {}
-}
-
 export default function ImageNode({ id, data }: NodeProps) {
   const { base64, mimeType, prompt } = data as { base64: string; mimeType: string; prompt: string }
   const { setNodes, setEdges, getNode } = useReactFlow()
@@ -37,12 +32,11 @@ export default function ImageNode({ id, data }: NodeProps) {
     try {
       const { data: result } = await axios.post(
         '/api/analyze-image',
-        { base64, mimeType: mimeType || 'image/jpeg' },
-        { headers: authHeaders() }
+        { base64, mimeType: mimeType || 'image/jpeg' }
       )
 
       const self = getNode(id)
-      const x = (self?.position.x ?? 0) + 260
+      const x = (self?.position.x ?? 0) + 240
       const y = self?.position.y ?? 0
       const newId = `prompt_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`
 
@@ -56,7 +50,6 @@ export default function ImageNode({ id, data }: NodeProps) {
         },
       }])
       setEdges(eds => [...eds, { id: `e_${id}_${newId}`, source: id, target: newId }])
-      window.dispatchEvent(new CustomEvent('canvas-refresh'))
     } catch (err: any) {
       setAnalyzeErr(err.response?.data?.error || '分析失败')
       setTimeout(() => setAnalyzeErr(''), 3000)
