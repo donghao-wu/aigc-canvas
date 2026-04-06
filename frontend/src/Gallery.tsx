@@ -61,6 +61,8 @@ export default function Gallery({ visible, onClose }: { visible: boolean; onClos
     if (!files || files.length === 0) return
     const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'))
     if (imageFiles.length === 0) return
+    // Reset input so same file can be re-uploaded
+    if (fileInputRef.current) fileInputRef.current.value = ''
     setUploading(true)
     setUploadErr('')
     try {
@@ -97,14 +99,19 @@ export default function Gallery({ visible, onClose }: { visible: boolean; onClos
 
   const deleteItem = async (item: GalleryItem, e: React.MouseEvent) => {
     e.stopPropagation()
-    if (item.source === 'uploaded') {
-      const filename = item.url.split('/').pop()!
-      await axios.delete(`/api/upload/${filename}`)
-    } else {
-      await axios.delete(`/api/gallery/${item.id}`)
+    try {
+      if (item.source === 'uploaded') {
+        const filename = item.url.split('/').pop()!
+        await axios.delete(`/api/upload/${filename}`)
+      } else {
+        await axios.delete(`/api/gallery/${item.id}`)
+      }
+      setItems(prev => prev.filter(i => i.id !== item.id))
+      if (lightbox?.id === item.id) setLightbox(null)
+    } catch (err: any) {
+      setUploadErr(err.response?.data?.error || '删除失败')
+      setTimeout(() => setUploadErr(''), 3000)
     }
-    setItems(prev => prev.filter(i => i.id !== item.id))
-    if (lightbox?.id === item.id) setLightbox(null)
   }
 
   const download = (item: GalleryItem, e?: React.MouseEvent) => {
