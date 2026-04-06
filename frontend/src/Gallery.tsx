@@ -245,7 +245,7 @@ export default function Gallery({ visible, onClose }: { visible: boolean; onClos
 
           {!loading && items.length === 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 192, gap: 8, color: T.textMuted }}>
-              <span style={{ fontSize: 13 }}>还没有生成过图片</span>
+              <span style={{ fontSize: 13 }}>还没有图片，试着生成或上传一张吧</span>
             </div>
           )}
 

@@ -44,8 +44,11 @@ export default function ImageNode({ id, data }: NodeProps) {
         mime = blob.type || 'image/jpeg'
         const buf = await blob.arrayBuffer()
         const bytes = new Uint8Array(buf)
+        const CHUNK = 8192
         let binary = ''
-        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+        for (let i = 0; i < bytes.length; i += CHUNK) {
+          binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+        }
         b64 = btoa(binary)
       }
 
