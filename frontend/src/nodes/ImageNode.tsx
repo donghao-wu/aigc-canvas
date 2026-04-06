@@ -1,19 +1,27 @@
 import { useCallback, useState } from 'react'
 import { Handle, Position, type NodeProps, useReactFlow } from '@xyflow/react'
+import axios from 'axios'
 import EditableTitle from './EditableTitle'
 import { useTheme } from '../ThemeContext'
 
+function authHeaders(): Record<string, string> {
+  const token = localStorage.getItem('auth_token')
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
 export default function ImageNode({ id, data }: NodeProps) {
   const { base64, mimeType, prompt } = data as { base64: string; mimeType: string; prompt: string }
-  const { setNodes } = useReactFlow()
+  const { setNodes, setEdges, getNode } = useReactFlow()
   const { T } = useTheme()
-  const nodeName   = (data as Record<string, unknown>)?.name as string || '图像'
+  const nodeName = (data as Record<string, unknown>)?.name as string || '图像'
   const handleRename = (v: string) =>
     setNodes(nds => nds.map(n => n.id === id ? { ...n, data: { ...n.data, name: v } } : n))
 
   const imgSrc = `data:${mimeType || 'image/jpeg'};base64,${base64}`
-  const [hovered,  setHovered]  = useState(false)
-  const [lightbox, setLightbox] = useState(false)
+  const [hovered,    setHovered]    = useState(false)
+  const [lightbox,   setLightbox]   = useState(false)
+  const [analyzing,  setAnalyzing]  = useState(false)
+  const [analyzeErr, setAnalyzeErr] = useState('')
 
   const handleDownload = useCallback(() => {
     const a = document.createElement('a')
@@ -21,6 +29,41 @@ export default function ImageNode({ id, data }: NodeProps) {
     a.download = `${nodeName}-${Date.now()}.jpg`
     a.click()
   }, [imgSrc, nodeName])
+
+  const handleAnalyze = useCallback(async () => {
+    if (analyzing || !base64) return
+    setAnalyzing(true)
+    setAnalyzeErr('')
+    try {
+      const { data: result } = await axios.post(
+        '/api/analyze-image',
+        { base64, mimeType: mimeType || 'image/jpeg' },
+        { headers: authHeaders() }
+      )
+
+      const self = getNode(id)
+      const x = (self?.position.x ?? 0) + 260
+      const y = self?.position.y ?? 0
+      const newId = `prompt_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`
+
+      setNodes(nds => [...nds, {
+        id: newId,
+        type: 'promptAnalysis',
+        position: { x, y },
+        data: {
+          analysis: result.analysis,
+          reconstructedPrompt: result.reconstructedPrompt,
+        },
+      }])
+      setEdges(eds => [...eds, { id: `e_${id}_${newId}`, source: id, target: newId }])
+      window.dispatchEvent(new CustomEvent('canvas-refresh'))
+    } catch (err: any) {
+      setAnalyzeErr(err.response?.data?.error || '分析失败')
+      setTimeout(() => setAnalyzeErr(''), 3000)
+    } finally {
+      setAnalyzing(false)
+    }
+  }, [id, base64, mimeType, analyzing, getNode, setNodes, setEdges])
 
   return (
     <>
@@ -47,18 +90,44 @@ export default function ImageNode({ id, data }: NodeProps) {
             className="text-xs font-medium flex-1 truncate"
             style={{ color: T.textSub }}
           />
+          {/* 拆解按钮 */}
+          <button
+            onClick={handleAnalyze}
+            disabled={analyzing}
+            title="反向拆解提示词"
+            style={{
+              fontSize: 10, padding: '2px 7px', borderRadius: 4,
+              background: analyzing ? 'rgba(201,152,42,0.15)' : T.nodeSubtle,
+              border: `1px solid ${analyzing ? 'rgba(201,152,42,0.4)' : T.border}`,
+              color: analyzing ? 'rgba(201,152,42,0.9)' : T.textSub,
+              cursor: analyzing ? 'not-allowed' : 'pointer',
+              transition: 'all 0.15s', flexShrink: 0,
+            }}
+          >
+            {analyzing ? (
+              <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>⟳</span>
+            ) : '拆解'}
+          </button>
+          {/* 下载按钮 */}
           <button
             onClick={handleDownload}
             style={{
               fontSize: 10, padding: '2px 6px', borderRadius: 4,
-              background: T.nodeSubtle,
-              border: `1px solid ${T.border}`,
-              color: T.textSub, cursor: 'pointer',
+              background: T.nodeSubtle, border: `1px solid ${T.border}`,
+              color: T.textSub, cursor: 'pointer', flexShrink: 0,
             }}
           >↓</button>
         </div>
 
-        {/* 图片：悬停放大，点击打开 lightbox */}
+        {/* 错误提示 */}
+        {analyzeErr && (
+          <div style={{
+            padding: '4px 10px', fontSize: 10, color: 'rgba(255,80,60,0.9)',
+            background: 'rgba(255,80,60,0.08)', borderBottom: '1px solid rgba(255,80,60,0.15)',
+          }}>{analyzeErr}</div>
+        )}
+
+        {/* 图片 */}
         <div
           className="relative overflow-hidden"
           style={{ cursor: 'zoom-in', background: T.nodeSubtle }}
@@ -71,8 +140,7 @@ export default function ImageNode({ id, data }: NodeProps) {
             alt={prompt}
             className="w-full block"
             style={{
-              maxHeight: 220,
-              objectFit: 'contain',
+              maxHeight: 220, objectFit: 'contain',
               transition: 'transform 0.2s ease',
               transform: hovered ? 'scale(1.06)' : 'scale(1)',
             }}
@@ -80,16 +148,13 @@ export default function ImageNode({ id, data }: NodeProps) {
           />
         </div>
 
-        {/* Prompt */}
+        {/* Prompt 预览 */}
         {prompt && (
-          <div
-            style={{
-              padding: '6px 10px', fontSize: 10, lineHeight: 1.5,
-              color: T.textMuted,
-              borderTop: `1px solid ${T.border}`,
-              maxHeight: 44, overflow: 'hidden',
-            }}
-          >
+          <div style={{
+            padding: '6px 10px', fontSize: 10, lineHeight: 1.5,
+            color: T.textMuted, borderTop: `1px solid ${T.border}`,
+            maxHeight: 44, overflow: 'hidden',
+          }}>
             {prompt.slice(0, 90)}{prompt.length > 90 ? '…' : ''}
           </div>
         )}
@@ -103,14 +168,10 @@ export default function ImageNode({ id, data }: NodeProps) {
           onClick={() => setLightbox(false)}
         >
           <img
-            src={imgSrc}
-            alt={prompt}
+            src={imgSrc} alt={prompt}
             style={{
-              maxWidth: '90vw',
-              maxHeight: '90vh',
-              objectFit: 'contain',
-              borderRadius: 12,
-              boxShadow: '0 32px 80px rgba(0,0,0,0.7)',
+              maxWidth: '90vw', maxHeight: '90vh', objectFit: 'contain',
+              borderRadius: 12, boxShadow: '0 32px 80px rgba(0,0,0,0.7)',
               animation: 'fadeInScale 0.18s ease',
             }}
             draggable={false}
