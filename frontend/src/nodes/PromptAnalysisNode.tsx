@@ -96,7 +96,6 @@ export default function PromptAnalysisNode({ id, data }: NodeProps) {
       data: { name: '生图（拆解）', presetPrompt: reconstructedPrompt },
     }])
     setEdges(eds => [...eds, { id: `e_${id}_${newId}`, source: id, target: newId }])
-    window.dispatchEvent(new CustomEvent('canvas-refresh'))
   }, [id, reconstructedPrompt, getNode, setNodes, setEdges])
 
   const inputStyle: React.CSSProperties = {
