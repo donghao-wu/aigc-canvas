@@ -566,6 +566,10 @@ app.delete('/api/upload/:filename', authMiddleware, (req, res) => {
     return res.status(400).json({ error: '无效文件名' });
   }
   const filePath = path.join(UPLOADS_DIR, filename);
+  // Defense in depth: verify resolved path is within uploads dir
+  if (!filePath.startsWith(UPLOADS_DIR + path.sep) && filePath !== UPLOADS_DIR) {
+    return res.status(400).json({ error: '无效文件名' });
+  }
   try {
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     res.json({ ok: true });
