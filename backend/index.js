@@ -273,20 +273,40 @@ async function generateMidjourney(prompt, aspectRatio) {
 // ── 影像分析：JSON → 自然语言提示词 ────────────────────────────
 function buildPromptFromAnalysis(a) {
   const parts = [];
+  // 人物
   if (a.characters?.length) {
     parts.push(a.characters.map(c => c.description).filter(Boolean).join('，'));
   }
+  // 场景
   if (a.setting?.location) parts.push(a.setting.location);
+  if (a.setting?.time_of_day) parts.push(a.setting.time_of_day);
   if (a.setting?.era) parts.push(`${a.setting.era}风格`);
+  // 光线
+  if (a.lighting?.quality) parts.push(`${a.lighting.quality}`);
   if (a.lighting?.direction && a.lighting?.tone) {
     parts.push(`${a.lighting.direction}${a.lighting.tone}光线`);
   } else if (a.lighting?.tone) {
     parts.push(`${a.lighting.tone}光线`);
   }
+  // 构图 & 镜头
   if (a.composition?.shot_type) parts.push(a.composition.shot_type);
+  if (a.composition?.depth_of_field) parts.push(a.composition.depth_of_field);
+  if (a.camera?.lens) parts.push(a.camera.lens);
+  if (a.camera?.bokeh) parts.push(a.camera.bokeh);
+  // 色彩
+  if (a.color?.grade) parts.push(a.color.grade);
+  if (a.color?.palette) parts.push(`${a.color.palette}色调`);
+  if (a.color?.temperature) parts.push(`${a.color.temperature}色温`);
+  // 氛围（最关键：情绪基调 + 英文关键词直接进提示词）
+  if (a.atmosphere?.mood) parts.push(a.atmosphere.mood);
+  if (a.atmosphere?.keywords?.length) {
+    parts.push(a.atmosphere.keywords.filter(Boolean).join(', '));
+  }
+  // 风格 & 后期
   if (a.style?.aesthetic) parts.push(a.style.aesthetic);
-  if (a.style?.color_palette) parts.push(`${a.style.color_palette}色调`);
-  if (a.style?.film_grain) parts.push('胶片质感');
+  if (a.post_processing?.style) parts.push(a.post_processing.style);
+  if (a.post_processing?.effects) parts.push(a.post_processing.effects);
+  if (a.style?.film_grain) parts.push('film grain, 胶片质感');
   return parts.filter(Boolean).join('，');
 }
 
@@ -310,7 +330,7 @@ app.post('/api/analyze-image', authMiddleware, async (req, res) => {
         messages: [
           {
             role: 'system',
-            content: '你是专业的影像提示词分析师。分析图片，严格只返回以下JSON格式，不要包含任何其他文字或markdown代码块：\n{"characters":[{"description":"人物描述","position":"画面位置"}],"setting":{"location":"地点","era":"时代","time_of_day":"时间"},"lighting":{"type":"光源类型","direction":"方向","tone":"色调"},"composition":{"shot_type":"景别","angle":"拍摄角度"},"style":{"aesthetic":"风格描述","color_palette":"主色调","film_grain":false}}\n无法判断的字段填null。'
+            content: '你是专业的AIGC影像提示词分析师。你的目标是帮助用户精准复刻图片的氛围感，尤其关注"为什么这张图有这种感觉"。除了基础元素，重点分析：色彩分级、情绪基调、镜头语言和后期风格。\n\n严格只返回以下JSON格式，不要包含任何其他文字或markdown代码块：\n{"characters":[{"description":"人物外貌、服装、表情的详细描述","position":"画面位置"}],"setting":{"location":"具体地点环境","era":"时代背景","time_of_day":"时间段"},"lighting":{"type":"光源类型","direction":"光线方向","tone":"光线色调","quality":"柔光/硬光/漫射"},"composition":{"shot_type":"景别","angle":"拍摄角度","depth_of_field":"强虚化/浅景深/清晰"},"color":{"palette":"具体主色调，如莫兰迪灰绿+米白","grade":"色彩分级风格，如青橙调/复古胶片/高对比冷调","temperature":"暖/冷/中性"},"atmosphere":{"mood":"情绪基调，如孤独忧郁/温暖治愈/紧张压抑","keywords":["3-5个最能描述氛围的英文词，如cinematic/melancholic/ethereal"]},"camera":{"lens":"镜头类型，如85mm人像/24mm广角/长焦压缩","bokeh":"强虚化/浅景深背景虚化/前景清晰"},"post_processing":{"style":"后期风格，如胶片颗粒/数字锐化/模拟褪色","effects":"特效，如漏光/色散/暗角"},"style":{"aesthetic":"整体美学风格的详细描述","film_grain":false}}\n无法判断的字段填null。'
           },
           {
             role: 'user',
