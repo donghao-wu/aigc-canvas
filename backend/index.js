@@ -376,7 +376,7 @@ app.post('/api/analyze-image', authMiddleware, async (req, res) => {
 });
 
 // ── 生图接口 ────────────────────────────────────────────────
-app.post('/api/generate-image', async (req, res) => {
+app.post('/api/generate-image', authMiddleware, async (req, res) => {
   try {
     const {
       prompt,
@@ -430,7 +430,7 @@ const SORA_CONFIG = {
 };
 
 // ── 视频生成接口 ─────────────────────────────────────────────
-app.post('/api/generate-video', async (req, res) => {
+app.post('/api/generate-video', authMiddleware, async (req, res) => {
   try {
     const { prompt, model = 'sora_video2' } = req.body;
 
@@ -482,7 +482,7 @@ app.post('/api/generate-video', async (req, res) => {
 // ── 视频状态查询 ─────────────────────────────────────────────
 // GET /api/video-status?type=sora&taskId=video_xxx
 // GET /api/video-status?type=veo&taskId=veo3:xxx
-app.get('/api/video-status', async (req, res) => {
+app.get('/api/video-status', authMiddleware, async (req, res) => {
   try {
     const { type, taskId } = req.query;
 
@@ -526,7 +526,7 @@ app.get('/api/video-status', async (req, res) => {
 });
 
 // ── Sora 视频代理（浏览器无法直接带 API Key 访问）───────────────
-app.get('/api/video-proxy/:taskId', async (req, res) => {
+app.get('/api/video-proxy/:taskId', authMiddleware, async (req, res) => {
   try {
     const { taskId } = req.params;
     console.log(`[视频代理] 下载 taskId=${taskId}`);
@@ -599,7 +599,7 @@ app.delete('/api/upload/:filename', authMiddleware, (req, res) => {
 });
 
 // ── 图片库接口 ────────────────────────────────────────────────
-app.get('/api/gallery', (req, res) => {
+app.get('/api/gallery', authMiddleware, (req, res) => {
   // Generated images from metadata
   const meta = loadMeta();
   const generated = meta.map(m => ({
@@ -641,7 +641,7 @@ app.get('/api/gallery', (req, res) => {
   res.json(all);
 });
 
-app.delete('/api/gallery/:id', (req, res) => {
+app.delete('/api/gallery/:id', authMiddleware, (req, res) => {
   try {
     let meta = loadMeta();
     const item = meta.find(m => m.id === req.params.id);
@@ -724,7 +724,7 @@ const SILICON_BASE    = 'https://api.siliconflow.cn/v1';
 const AGENT_MODEL     = 'Pro/deepseek-ai/DeepSeek-V3.2';
 const AGENT_PROMPT    = fs.readFileSync(path.join(__dirname, 'script-agent-prompt.txt'), 'utf8');
 
-app.post('/api/script-agent', async (req, res) => {
+app.post('/api/script-agent', authMiddleware, async (req, res) => {
   const { mode, script = '', shots = [], history = [] } = req.body;
 
   // 根据模式构造 user 消息
@@ -903,7 +903,7 @@ PROMPT: ${stylePrefix}, character design sheet, full body three-view reference (
 ===ASSET_END===`;
 }
 
-app.post('/api/asset-agent', async (req, res) => {
+app.post('/api/asset-agent', authMiddleware, async (req, res) => {
   const { promptTexts = [], mode = 'simple', style = '3D', customStyle = '', script = '' } = req.body;
   const stylePrefix = style === 'custom' ? (customStyle || '3D CGI render') : (STYLE_PREFIXES[style] || STYLE_PREFIXES['3D']);
   const systemPrompt = buildAssetSystemPrompt(mode, stylePrefix);
