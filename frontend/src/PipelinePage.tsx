@@ -389,7 +389,7 @@ export default function PipelinePage({ projectId, projectName, onHome, onSwitchT
             videos={videos} setVideos={setVideos}
             enabled={step2Status === 'done'}
           />
-          <Step4Placeholder
+          <Step4
             status={step4Status} setStatus={setStep4Status}
             projectName={projectName}
             shots={shots} assets={assets} videos={videos}
@@ -671,17 +671,75 @@ function Step3({ status, setStatus, shots, assets, videos, setVideos, enabled }:
   )
 }
 
-function Step4Placeholder({ status, setStatus: _setStatus, projectName: _projectName, shots: _shots, assets: _assets, videos: _videos, manifestFolder, setManifestFolder: _setManifestFolder, enabled }: {
+function Step4({ status, setStatus, projectName, shots, assets, videos, manifestFolder, setManifestFolder, enabled }: {
   status: StepStatus; setStatus: (s: StepStatus) => void
   projectName: string; shots: Shot[]; assets: PipelineAsset[]; videos: PipelineVideo[]
   manifestFolder: string | null; setManifestFolder: (f: string) => void
   enabled: boolean
 }) {
   const { T } = useTheme()
+  const [error, setError] = useState<string | null>(null)
+
+  const handleRun = useCallback(async () => {
+    if (!enabled || status === 'running') return
+    setStatus('running')
+    setError(null)
+
+    try {
+      const { data } = await axios.post<{ ok: boolean; folder: string; path: string }>('/api/pipeline/save-manifest', {
+        projectName,
+        shots,
+        assets: assets.map(a => ({ type: a.type, name: a.name, prompt: a.prompt, savedId: a.savedId })),
+        videos: videos.map(v => ({ shotId: v.shotId, prompt: v.prompt, taskId: v.taskId, status: v.status, videoUrl: v.videoUrl })),
+      })
+      setManifestFolder(data.folder)
+      setStatus('done')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '归档失败')
+      setStatus('failed')
+    }
+  }, [enabled, status, projectName, shots, assets, videos, setStatus, setManifestFolder])
+
   return (
     <StepCard step={4} title="素材归档" status={status}
-      canRun={enabled && status !== 'running'} onRun={() => {}}>
-      {!manifestFolder && <div style={{ fontSize: 11, color: T.textMuted }}>等待步骤 3 完成</div>}
+      canRun={enabled && status !== 'running'} onRun={handleRun}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {error && (
+          <div style={{
+            fontSize: 11, color: 'rgba(248,113,113,0.9)', padding: '6px 10px',
+            borderRadius: 6, background: 'rgba(248,113,113,0.08)',
+            border: '1px solid rgba(248,113,113,0.2)',
+          }}>
+            ❌ {error}
+          </div>
+        )}
+        {manifestFolder && (
+          <div style={{ fontSize: 11, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ color: 'rgba(52,211,153,0.9)', fontWeight: 600 }}>✅ 归档完成</div>
+            <div style={{ color: T.textMuted }}>📁 pipeline-output/{manifestFolder}/</div>
+            <div style={{ color: T.textSub, paddingLeft: 16 }}>📄 manifest.json</div>
+            <div style={{ color: T.textSub, paddingLeft: 16 }}>🖼️ {assets.filter(a => a.savedId).length} 张设计图</div>
+            <div style={{ color: T.textSub, paddingLeft: 16 }}>🎬 {videos.length} 个视频任务</div>
+            <div style={{
+              marginTop: 4, padding: '6px 10px', borderRadius: 6,
+              background: T.nodeSubtle, border: `1px solid ${T.border}`,
+            }}>
+              <div style={{ fontSize: 10, color: T.textMuted, marginBottom: 4 }}>素材统计</div>
+              <div style={{ fontSize: 11, color: T.textSub }}>
+                镜头数：{shots.length} ·
+                角色：{assets.filter(a => a.type === 'CHARACTER').length} ·
+                场景：{assets.filter(a => a.type === 'SCENE').length} ·
+                视频完成：{videos.filter(v => v.status === 'completed').length}/{videos.length}
+              </div>
+            </div>
+          </div>
+        )}
+        {!manifestFolder && !error && (
+          <div style={{ fontSize: 11, color: T.textMuted }}>
+            将保存到 backend/pipeline-output/ 目录
+          </div>
+        )}
+      </div>
     </StepCard>
   )
 }
