@@ -30,6 +30,7 @@ import TextNode from './nodes/TextNode'
 import PromptAnalysisNode from './nodes/PromptAnalysisNode'
 import Gallery from './Gallery'
 import ScriptWorkbench from './ScriptWorkbench'
+import PipelinePage from './PipelinePage'
 
 const nodeTypes = {
   imageGen: ImageGenNode,
@@ -108,7 +109,7 @@ const SHORTCUTS = [
 interface ProjectRef { id: string; name: string }
 
 // ── 画布（需要包在 ReactFlowProvider 里） ───────────────────
-function Canvas({ project, onHome, onSwitchToWorkbench }: { project: ProjectRef; onHome: () => void; onSwitchToWorkbench: () => void }) {
+function Canvas({ project, onHome, onSwitchToWorkbench, onSwitchToPipeline }: { project: ProjectRef; onHome: () => void; onSwitchToWorkbench: () => void; onSwitchToPipeline: () => void }) {
   const { theme, T, toggle } = useTheme()
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
@@ -428,6 +429,7 @@ function Canvas({ project, onHome, onSwitchToWorkbench }: { project: ProjectRef;
               {[
                 { label: '图片库',    active: galleryOpen,    onClick: () => setGalleryOpen(o => !o) },
                 { label: '剧本工作台', active: false,          onClick: onSwitchToWorkbench },
+                { label: 'Pipeline',  active: false,          onClick: onSwitchToPipeline },
               ].map(item => (
                 <button
                   key={item.label}
@@ -558,7 +560,7 @@ function Canvas({ project, onHome, onSwitchToWorkbench }: { project: ProjectRef;
 
 type AppView =
   | { type: 'home' }
-  | { type: 'project'; project: ProjectRef; tab: 'canvas' | 'workbench' }
+  | { type: 'project'; project: ProjectRef; tab: 'canvas' | 'workbench' | 'pipeline' }
 
 // ── axios 全局 token 拦截器 ───────────────────────────────────
 axios.interceptors.request.use(config => {
@@ -603,7 +605,7 @@ export default function App() {
 
   if (view.type === 'project') {
     const { project, tab } = view
-    const switchTab = (newTab: 'canvas' | 'workbench') =>
+    const switchTab = (newTab: 'canvas' | 'workbench' | 'pipeline') =>
       setView({ type: 'project', project, tab: newTab })
 
     return (
@@ -614,11 +616,20 @@ export default function App() {
               project={project}
               onHome={() => setView({ type: 'home' })}
               onSwitchToWorkbench={() => switchTab('workbench')}
+              onSwitchToPipeline={() => switchTab('pipeline')}
             />
           </ReactFlowProvider>
         </div>
         <div style={{ display: tab === 'workbench' ? 'block' : 'none', width: '100vw', height: '100vh' }}>
           <ScriptWorkbench
+            projectId={project.id}
+            projectName={project.name}
+            onHome={() => setView({ type: 'home' })}
+            onSwitchToCanvas={() => switchTab('canvas')}
+          />
+        </div>
+        <div style={{ display: tab === 'pipeline' ? 'block' : 'none', width: '100vw', height: '100vh' }}>
+          <PipelinePage
             projectId={project.id}
             projectName={project.name}
             onHome={() => setView({ type: 'home' })}
