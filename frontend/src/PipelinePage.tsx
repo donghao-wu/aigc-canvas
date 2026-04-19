@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
 import axios from 'axios'
 import { useTheme } from './ThemeContext'
 
@@ -172,7 +172,7 @@ function StepCard({
   step, title, status, canRun, onRun, children,
 }: {
   step: number; title: string; status: StepStatus
-  canRun: boolean; onRun: () => void; children?: React.ReactNode
+  canRun: boolean; onRun: () => void; children?: ReactNode
 }) {
   const { T } = useTheme()
   return (
