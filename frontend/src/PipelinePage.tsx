@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import axios from 'axios'
 import { useTheme } from './ThemeContext'
 
@@ -383,7 +383,7 @@ export default function PipelinePage({ projectId, projectName, onHome, onSwitchT
             assets={assets} setAssets={setAssets}
             enabled={step1Status === 'done'}
           />
-          <Step3Placeholder
+          <Step3
             status={step3Status} setStatus={setStep3Status}
             shots={shots} assets={assets}
             videos={videos} setVideos={setVideos}
@@ -528,17 +528,144 @@ function Step2({ status, setStatus, shots, script, style, assets, setAssets, ena
   )
 }
 
-function Step3Placeholder({ status, setStatus: _setStatus, shots: _shots, assets: _assets, videos, setVideos: _setVideos, enabled }: {
+function Step3({ status, setStatus, shots, assets, videos, setVideos, enabled }: {
   status: StepStatus; setStatus: (s: StepStatus) => void
   shots: Shot[]; assets: PipelineAsset[]
   videos: PipelineVideo[]; setVideos: (v: PipelineVideo[]) => void
   enabled: boolean
 }) {
   const { T } = useTheme()
+  const [promptText, setPromptText] = useState('')
+  const videosRef = useRef<PipelineVideo[]>([])
+  const pollsRef  = useRef<Map<number, ReturnType<typeof setInterval>>>(new Map())
+
+  const stopAllPolls = useCallback(() => {
+    pollsRef.current.forEach(timer => clearInterval(timer))
+    pollsRef.current.clear()
+  }, [])
+
+  const pollVideo = useCallback((shotId: number, taskId: string) => {
+    const timer = setInterval(async () => {
+      try {
+        const { data } = await axios.get<{ status: string; progress?: number; videoUrl?: string }>('/api/video-status', { params: { taskId } })
+        videosRef.current = videosRef.current.map(v =>
+          v.shotId === shotId
+            ? { ...v,
+                status: data.status === 'completed' ? 'completed' : data.status === 'failed' ? 'failed' : 'processing',
+                videoUrl: data.videoUrl ?? v.videoUrl }
+            : v
+        )
+        setVideos([...videosRef.current])
+        if (data.status === 'completed' || data.status === 'failed') {
+          clearInterval(pollsRef.current.get(shotId))
+          pollsRef.current.delete(shotId)
+        }
+      } catch { /* ignore transient poll errors */ }
+    }, 5000)
+    pollsRef.current.set(shotId, timer)
+  }, [setVideos])
+
+  const handleRun = useCallback(async () => {
+    if (!enabled || status === 'running') return
+    stopAllPolls()
+    setStatus('running')
+    setPromptText('')
+    videosRef.current = []
+    setVideos([])
+
+    try {
+      // 1. Get video prompts from script-agent
+      const shotsForPrompts = shots.map(s => ({
+        header: `镜头 ${String(s.id).padStart(2, '0')} | ${s.location} | ${s.shotType} | ${s.angle} — ${s.desc}`,
+        details: '',
+        isGroup: false,
+      }))
+      const full = await streamSSE(
+        '/api/script-agent',
+        { mode: 'prompts', shots: shotsForPrompts },
+        (acc) => setPromptText(acc),
+      )
+
+      const videoPrompts = parseVideoPrompts(full)
+      if (videoPrompts.length === 0) throw new Error('未解析到视频提示词')
+
+      const initial: PipelineVideo[] = videoPrompts.map(vp => ({ shotId: vp.shotId, prompt: vp.prompt, status: 'pending' }))
+      videosRef.current = initial
+      setVideos([...initial])
+
+      // 2. Batch submit videos 3 at a time
+      await runBatched(videoPrompts, 3, async (vp, index) => {
+        videosRef.current = videosRef.current.map((v, i) =>
+          i === index ? { ...v, status: 'submitting' } : v
+        )
+        setVideos([...videosRef.current])
+
+        try {
+          const { data } = await axios.post<{ taskId: string }>('/api/generate-video', {
+            prompt: vp.prompt,
+            model: 'wan_landscape',
+          })
+          const taskId = data.taskId
+          videosRef.current = videosRef.current.map((v, i) =>
+            i === index ? { ...v, taskId, status: 'processing' } : v
+          )
+          setVideos([...videosRef.current])
+          pollVideo(vp.shotId, taskId)
+        } catch {
+          videosRef.current = videosRef.current.map((v, i) =>
+            i === index ? { ...v, status: 'failed' } : v
+          )
+          setVideos([...videosRef.current])
+        }
+      })
+
+      setStatus('done')
+    } catch (err) {
+      setStatus('failed')
+    }
+  }, [enabled, status, shots, setStatus, setVideos, pollVideo, stopAllPolls])
+
+  // Clean up polls on unmount
+  useEffect(() => () => stopAllPolls(), [stopAllPolls])
+
+  const VIDEO_STATUS_ICON: Record<PipelineVideo['status'], string> = {
+    pending: '⏸️', submitting: '📤', processing: '⏳', completed: '✅', failed: '❌',
+  }
+
   return (
     <StepCard step={3} title="分镜视频生成" status={status}
-      canRun={enabled && status !== 'running'} onRun={() => {}}>
-      {videos.length === 0 && <div style={{ fontSize: 11, color: T.textMuted }}>等待步骤 2 完成</div>}
+      canRun={enabled && status !== 'running'} onRun={handleRun}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {promptText && videos.length === 0 && (
+          <div style={{
+            fontSize: 11, color: T.textSub, background: T.nodeSubtle,
+            borderRadius: 6, padding: '6px 10px', maxHeight: 60, overflowY: 'auto',
+            whiteSpace: 'pre-wrap', fontFamily: 'monospace',
+          }}>{promptText.slice(-200)}</div>
+        )}
+        {videos.map(v => (
+          <div key={v.shotId} style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '6px 10px', borderRadius: 6,
+            background: T.nodeSubtle, border: `1px solid ${T.border}`,
+          }}>
+            <span style={{ fontSize: 12 }}>{VIDEO_STATUS_ICON[v.status]}</span>
+            <span style={{ fontSize: 11, color: T.textMuted, width: 56, flexShrink: 0 }}>镜头 {v.shotId}</span>
+            <span style={{ fontSize: 11, color: T.textSub, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {v.prompt.slice(0, 60)}...
+            </span>
+            {v.videoUrl && v.status === 'completed' && (
+              <a href={v.videoUrl} target="_blank" rel="noreferrer"
+                style={{ fontSize: 10, color: 'rgba(201,152,42,0.9)', textDecoration: 'none' }}>预览</a>
+            )}
+          </div>
+        ))}
+        {videos.length > 0 && (
+          <div style={{ fontSize: 11, color: T.textMuted }}>
+            {videos.filter(v => v.status === 'completed').length}/{videos.length} 完成
+          </div>
+        )}
+      </div>
     </StepCard>
   )
 }
