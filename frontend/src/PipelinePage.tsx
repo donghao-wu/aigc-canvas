@@ -443,13 +443,13 @@ function Step2({ status, setStatus, shots, script, style, assets, setAssets, ena
         setAssets([...assetsRef.current])
 
         try {
-          const { data } = await axios.post('/api/generate-image', {
+          const { data } = await axios.post<{ base64: string; mimeType: string; savedId: string }>('/api/generate-image', {
             prompt: asset.prompt,
             model: 'wanx2.1-t2i-turbo',
             aspectRatio: asset.type === 'CHARACTER' ? '3:4' : '16:9',
           })
           assetsRef.current = assetsRef.current.map((a, i) =>
-            i === index ? { ...a, status: 'done', imageBase64: data.base64, mimeType: data.mimeType, savedId: data.savedId } : a
+            i === index ? { ...a, status: 'done', imageBase64: data.base64 ?? '', mimeType: data.mimeType ?? 'image/jpeg', savedId: data.savedId } : a
           )
         } catch {
           assetsRef.current = assetsRef.current.map((a, i) =>
@@ -459,7 +459,8 @@ function Step2({ status, setStatus, shots, script, style, assets, setAssets, ena
         setAssets([...assetsRef.current])
       })
 
-      setStatus('done')
+      const anyDone = assetsRef.current.some(a => a.status === 'done')
+      setStatus(anyDone ? 'done' : 'failed')
     } catch (err) {
       setStatus('failed')
     }
