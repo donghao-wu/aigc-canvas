@@ -869,6 +869,59 @@ app.post('/api/asset-agent', authMiddleware, async (req, res) => {
   }
 });
 
+// ── Pipeline 素材归档 ────────────────────────────────────────
+const PIPELINE_OUTPUT_DIR = path.join(__dirname, 'pipeline-output');
+if (!fs.existsSync(PIPELINE_OUTPUT_DIR)) fs.mkdirSync(PIPELINE_OUTPUT_DIR, { recursive: true });
+
+app.post('/api/pipeline/save-manifest', authMiddleware, async (req, res) => {
+  try {
+    const { projectName = 'untitled', shots = [], assets = [], videos = [] } = req.body;
+    const safeName = String(projectName).replace(/[^a-zA-Z0-9_\u4e00-\u9fff-]/g, '_').slice(0, 40);
+    const folderName = `${Date.now()}-${safeName}`;
+    const outDir = path.join(PIPELINE_OUTPUT_DIR, folderName);
+    fs.mkdirSync(outDir, { recursive: true });
+
+    // Copy generated images into output folder
+    const assetsWithFiles = assets.map(a => {
+      let file = null;
+      if (a.savedId) {
+        const meta = loadMeta();
+        const entry = meta.find(m => m.id === a.savedId);
+        if (entry) {
+          const src = path.join(GENERATED_DIR, entry.filename);
+          const dest = path.join(outDir, entry.filename);
+          if (fs.existsSync(src)) { fs.copyFileSync(src, dest); file = entry.filename; }
+        }
+      }
+      return { type: a.type, name: a.name, prompt: a.prompt, file };
+    });
+
+    const videosWithFiles = videos.map(v => ({
+      shotId: v.shotId,
+      prompt: v.prompt,
+      taskId: v.taskId || null,
+      status: v.status,
+      videoUrl: v.videoUrl || null,
+    }));
+
+    const manifest = {
+      projectName,
+      createdAt: new Date().toISOString(),
+      totalShots: shots.length,
+      shots,
+      assets: assetsWithFiles,
+      videos: videosWithFiles,
+    };
+
+    fs.writeFileSync(path.join(outDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
+    console.log(`[Pipeline] 归档完成: ${folderName}`);
+    res.json({ ok: true, folder: folderName, path: `pipeline-output/${folderName}/manifest.json` });
+  } catch (err) {
+    console.error('[Pipeline] 归档失败:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── 健康检查 ─────────────────────────────────────────────────
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() });
