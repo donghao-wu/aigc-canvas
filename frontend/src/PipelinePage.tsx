@@ -377,7 +377,7 @@ export default function PipelinePage({ projectId, projectName, onHome, onSwitchT
           </StepCard>
 
           {/* Steps 2–4 placeholder rendered in Tasks 4–6 */}
-          <Step2Placeholder
+          <Step2
             status={step2Status} setStatus={setStep2Status}
             shots={shots} script={script} style={style}
             assets={assets} setAssets={setAssets}
@@ -404,17 +404,125 @@ export default function PipelinePage({ projectId, projectName, onHome, onSwitchT
 }
 
 // ── Placeholder components (replaced in Tasks 4–6) ───────────
-function Step2Placeholder({ status, setStatus: _setStatus, shots: _shots, script: _script, style: _style, assets, setAssets: _setAssets, enabled }: {
+function Step2({ status, setStatus, shots, script, style, assets, setAssets, enabled }: {
   status: StepStatus; setStatus: (s: StepStatus) => void
   shots: Shot[]; script: string; style: AssetStyle
   assets: PipelineAsset[]; setAssets: (a: PipelineAsset[]) => void
   enabled: boolean
 }) {
   const { T } = useTheme()
+  const [streamText, setStreamText] = useState('')
+  const assetsRef = useRef<PipelineAsset[]>([])
+
+  const handleRun = useCallback(async () => {
+    if (!enabled || status === 'running') return
+    setStatus('running')
+    setStreamText('')
+    assetsRef.current = []
+    setAssets([])
+
+    try {
+      // 1. Call asset-agent to get prompts
+      const full = await streamSSE(
+        '/api/asset-agent',
+        { mode: 'detailed', style, script, promptTexts: shots.map(s => `镜头 ${s.id} | ${s.location} | ${s.shotType} | ${s.angle} — ${s.desc}`) },
+        (acc) => setStreamText(acc),
+      )
+
+      const parsed = parseAssetsFromText(full)
+      if (parsed.length === 0) throw new Error('未解析到任何资产，请检查剧本内容')
+
+      assetsRef.current = parsed
+      setAssets([...parsed])
+
+      // 2. Batch generate images 3 at a time
+      await runBatched(parsed, 3, async (asset, index) => {
+        assetsRef.current = assetsRef.current.map((a, i) =>
+          i === index ? { ...a, status: 'generating' } : a
+        )
+        setAssets([...assetsRef.current])
+
+        try {
+          const { data } = await axios.post('/api/generate-image', {
+            prompt: asset.prompt,
+            model: 'wanx2.1-t2i-turbo',
+            aspectRatio: asset.type === 'CHARACTER' ? '3:4' : '16:9',
+          })
+          assetsRef.current = assetsRef.current.map((a, i) =>
+            i === index ? { ...a, status: 'done', imageBase64: data.base64, mimeType: data.mimeType, savedId: data.savedId } : a
+          )
+        } catch {
+          assetsRef.current = assetsRef.current.map((a, i) =>
+            i === index ? { ...a, status: 'failed' } : a
+          )
+        }
+        setAssets([...assetsRef.current])
+      })
+
+      setStatus('done')
+    } catch (err) {
+      setStatus('failed')
+    }
+  }, [enabled, status, shots, script, style, setStatus, setAssets])
+
+  const TYPE_LABEL: Record<PipelineAsset['type'], string> = { CHARACTER: '角色', SCENE: '场景', PROP: '道具' }
+  const TYPE_COLOR: Record<PipelineAsset['type'], string> = {
+    CHARACTER: 'rgba(167,139,250,0.9)',
+    SCENE: 'rgba(52,211,153,0.9)',
+    PROP: 'rgba(251,191,36,0.9)',
+  }
+
   return (
     <StepCard step={2} title="角色/场景设计生图" status={status}
-      canRun={enabled && status !== 'running'} onRun={() => {}}>
-      {assets.length === 0 && <div style={{ fontSize: 11, color: T.textMuted }}>等待步骤 1 完成</div>}
+      canRun={enabled && status !== 'running'} onRun={handleRun}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {streamText && assets.length === 0 && (
+          <div style={{
+            fontSize: 11, color: T.textSub, background: T.nodeSubtle,
+            borderRadius: 6, padding: '6px 10px', maxHeight: 80,
+            overflowY: 'auto', whiteSpace: 'pre-wrap', fontFamily: 'monospace',
+          }}>{streamText.slice(-300)}</div>
+        )}
+        {assets.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {assets.map(asset => (
+              <div key={asset.id} style={{
+                width: 120, borderRadius: 8, overflow: 'hidden',
+                background: T.nodeSubtle, border: `1px solid ${T.border}`,
+                display: 'flex', flexDirection: 'column',
+              }}>
+                <div style={{ height: 90, background: T.inputBg, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                  {asset.imageBase64 ? (
+                    <img src={`data:${asset.mimeType};base64,${asset.imageBase64}`}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt={asset.name} />
+                  ) : (
+                    <span style={{ fontSize: 18 }}>
+                      {asset.status === 'generating' ? '⏳' : asset.status === 'failed' ? '❌' : '🖼️'}
+                    </span>
+                  )}
+                  <span style={{
+                    position: 'absolute', top: 4, left: 4,
+                    fontSize: 9, padding: '1px 5px', borderRadius: 4,
+                    background: TYPE_COLOR[asset.type] + '33',
+                    color: TYPE_COLOR[asset.type],
+                    border: `1px solid ${TYPE_COLOR[asset.type]}66`,
+                    fontWeight: 600,
+                  }}>{TYPE_LABEL[asset.type]}</span>
+                </div>
+                <div style={{ padding: '5px 6px', fontSize: 10, color: T.textSub, lineHeight: 1.4 }}>
+                  {asset.name}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {assets.length > 0 && (
+          <div style={{ fontSize: 11, color: T.textMuted }}>
+            {assets.filter(a => a.status === 'done').length}/{assets.length} 完成
+            {assets.some(a => a.status === 'failed') && ` · ${assets.filter(a => a.status === 'failed').length} 失败`}
+          </div>
+        )}
+      </div>
     </StepCard>
   )
 }
