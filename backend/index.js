@@ -30,10 +30,11 @@ function validateId(id) {
   return typeof id === 'string' && /^[a-zA-Z0-9_-]+$/.test(id);
 }
 
-const API_KEY = process.env.LAOZHANG_API_KEY;
-const API_BASE = 'https://api.laozhang.ai';
-const JWT_SECRET    = process.env.JWT_SECRET    || 'changeme-secret';
-const ADMIN_SECRET  = process.env.ADMIN_SECRET  || 'changeme-admin';
+const DASHSCOPE_KEY  = process.env.DASHSCOPE_API_KEY;
+const DS_CHAT_BASE   = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+const DS_API_BASE    = 'https://dashscope.aliyuncs.com/api/v1';
+const JWT_SECRET     = process.env.JWT_SECRET    || 'changeme-secret';
+const ADMIN_SECRET   = process.env.ADMIN_SECRET  || 'changeme-admin';
 
 // ── 用户存储 ──────────────────────────────────────────────────
 const USERS_FILE = path.join(__dirname, 'users.json');
@@ -145,18 +146,18 @@ const upload = multer({
   limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
 });
 
-// ── 中文检测 + 自动翻译（Sora 只接受英文）──────────────────────
+// ── 中文检测 + 自动翻译（WAN 视频生成推荐英文）───────────────────
 async function ensureEnglish(text) {
-  if (!/[\u4e00-\u9fff\u3040-\u30ff]/.test(text)) return text; // 无中日文直接返回
+  if (!/[\u4e00-\u9fff\u3040-\u30ff]/.test(text)) return text;
   try {
     const res = await axios.post(
-      `${API_BASE}/v1/chat/completions`,
+      `${DS_CHAT_BASE}/chat/completions`,
       {
-        model: 'gpt-4o-mini',
+        model: 'qwen-turbo',
         messages: [{ role: 'user', content: `Translate this AI video/image prompt to English. Output only the translated text:\n\n${text}` }],
         max_tokens: 300,
       },
-      { headers: { Authorization: `Bearer ${API_KEY}`, 'Content-Type': 'application/json' }, timeout: 10000 }
+      { headers: { Authorization: `Bearer ${DASHSCOPE_KEY}`, 'Content-Type': 'application/json' }, timeout: 15000 }
     );
     const translated = res.data?.choices?.[0]?.message?.content?.trim();
     if (translated) {
@@ -169,105 +170,57 @@ async function ensureEnglish(text) {
   return text;
 }
 
-// ── NanoBanana 生图（支持纯文字 + 多张参考图） ───────────────────
-// 走 /v1/chat/completions，响应是 markdown 包裹的 base64
-// 宽高比 → 像素尺寸映射
-const RATIO_TO_SIZE = {
-  '1:1':  { w: 1024, h: 1024 },
-  '16:9': { w: 1280, h: 720  },
-  '9:16': { w: 720,  h: 1280 },
-  '4:3':  { w: 1024, h: 768  },
-  '3:4':  { w: 768,  h: 1024 },
-  '3:2':  { w: 1200, h: 800  },
-  '2:3':  { w: 800,  h: 1200 },
+// ── Wanx 文生图（DashScope 异步任务）──────────────────────────
+const WANX_SIZE_MAP = {
+  '1:1':  '1024*1024',
+  '16:9': '1280*720',
+  '9:16': '720*1280',
+  '4:3':  '1024*768',
+  '3:4':  '768*1024',
+  '3:2':  '1200*800',
+  '2:3':  '800*1200',
 };
 
-async function generateNanoBanana(prompt, model, aspectRatio, imageSize, referenceImages) {
-  const content = [];
-
-  // 在 prompt 末尾追加比例提示作为兜底
-  const dim = RATIO_TO_SIZE[aspectRatio] || RATIO_TO_SIZE['1:1'];
-  const scale = imageSize === '2K' ? 2 : 1;
-  const w = dim.w * scale;
-  const h = dim.h * scale;
-  const promptWithRatio = `${prompt} [aspect ratio: ${aspectRatio}]`;
-
-  content.push({ type: 'text', text: promptWithRatio });
-
-  // 追加所有参考图（image_url data URL 格式）
-  for (const img of (referenceImages || [])) {
-    if (img?.base64) {
-      content.push({
-        type: 'image_url',
-        image_url: { url: `data:${img.mimeType || 'image/jpeg'};base64,${img.base64}` },
-      });
-    }
-  }
-
-  const payload = {
-    model,
-    messages: [{ role: 'user', content }],
-    size: `${w}x${h}`,   // 部分端点支持此参数
-  };
-
-  const response = await axios.post(`${API_BASE}/v1/chat/completions`, payload, {
-    headers: {
-      Authorization: `Bearer ${API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    timeout: 120000,
-  });
-
-  const text = response.data?.choices?.[0]?.message?.content || '';
-  if (!text) throw new Error('响应格式异常，未找到内容');
-
-  // 提取 markdown 中的 base64 图片：![...](data:image/xxx;base64,...)
-  const match = text.match(/!\[.*?\]\(data:(image\/\w+);base64,([^)]+)\)/);
-  if (!match) throw new Error('响应中没有图片数据: ' + text.slice(0, 200));
-
-  return { mimeType: match[1], base64: match[2] };
-}
-
-// ── Midjourney 生图 ──────────────────────────────────────────
-const MJ_AR_MAP = {
-  '1:1': '1:1', '16:9': '16:9', '9:16': '9:16',
-  '4:3': '4:3', '3:4': '3:4',  '3:2': '3:2',
-};
-
-async function generateMidjourney(prompt, aspectRatio) {
-  const ar = MJ_AR_MAP[aspectRatio] || '1:1';
-  const fullPrompt = `${prompt} --ar ${ar}`;
+async function generateWanx(prompt, model, aspectRatio) {
+  const size = WANX_SIZE_MAP[aspectRatio] || '1024*1024';
+  const wanxModel = model || 'wanx2.1-t2i-turbo';
 
   // 1. 提交任务
   const submitRes = await axios.post(
-    `${API_BASE}/mj/submit/imagine`,
-    { prompt: fullPrompt, base64Array: [], mode: 'relax' },
-    { headers: { Authorization: `Bearer ${API_KEY}`, 'Content-Type': 'application/json' }, timeout: 30000 }
+    `${DS_API_BASE}/services/aigc/text2image/image-synthesis`,
+    { model: wanxModel, input: { prompt }, parameters: { size, n: 1 } },
+    {
+      headers: {
+        Authorization: `Bearer ${DASHSCOPE_KEY}`,
+        'Content-Type': 'application/json',
+        'X-DashScope-Async': 'enable',
+      },
+      timeout: 30000,
+    }
   );
-  const taskId = submitRes.data?.result;
-  if (!taskId) throw new Error('MJ 提交失败: ' + JSON.stringify(submitRes.data));
-  console.log(`[MJ] 任务已提交 taskId=${taskId}`);
+  const taskId = submitRes.data?.output?.task_id;
+  if (!taskId) throw new Error('Wanx 任务提交失败: ' + JSON.stringify(submitRes.data));
+  console.log(`[Wanx] 任务已提交 taskId=${taskId}`);
 
-  // 2. 轮询直到完成（最多等 5 分钟）
+  // 2. 轮询（最多等 5 分钟）
   const deadline = Date.now() + 5 * 60 * 1000;
   while (Date.now() < deadline) {
-    await new Promise(r => setTimeout(r, 5000));
-    const fetchRes = await axios.get(
-      `${API_BASE}/mj/task/${taskId}/fetch`,
-      { headers: { Authorization: `Bearer ${API_KEY}` }, timeout: 15000 }
+    await new Promise(r => setTimeout(r, 4000));
+    const pollRes = await axios.get(
+      `${DS_API_BASE}/tasks/${taskId}`,
+      { headers: { Authorization: `Bearer ${DASHSCOPE_KEY}` }, timeout: 15000 }
     );
-    const { status, imageUrl, failReason } = fetchRes.data || {};
-    console.log(`[MJ] 轮询 status=${status}`);
-    if (status === 'FAILURE') throw new Error('MJ 生成失败: ' + failReason);
-    if (status === 'SUCCESS' && imageUrl) {
-      // 下载图片转 base64
-      const imgRes = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 30000 });
+    const { task_status, results, message } = pollRes.data?.output || {};
+    console.log(`[Wanx] 轮询 status=${task_status}`);
+    if (task_status === 'FAILED') throw new Error('Wanx 生成失败: ' + (message || ''));
+    if (task_status === 'SUCCEEDED' && results?.[0]?.url) {
+      const imgRes = await axios.get(results[0].url, { responseType: 'arraybuffer', timeout: 30000 });
       const mimeType = imgRes.headers['content-type']?.split(';')[0] || 'image/png';
       const base64 = Buffer.from(imgRes.data).toString('base64');
       return { mimeType, base64 };
     }
   }
-  throw new Error('MJ 生成超时（5分钟）');
+  throw new Error('Wanx 生成超时（5分钟）');
 }
 
 // ── 影像分析：JSON → 自然语言提示词 ────────────────────────────
@@ -318,7 +271,6 @@ app.post('/api/analyze-image', authMiddleware, async (req, res) => {
     const safeMime = ALLOWED_MIME.includes(mimeType) ? mimeType : 'image/jpeg';
     if (!base64) return res.status(400).json({ error: '缺少图片数据' });
 
-    const DASHSCOPE_KEY = process.env.DASHSCOPE_API_KEY;
     if (!DASHSCOPE_KEY) return res.status(500).json({ error: '未配置 DASHSCOPE_API_KEY' });
 
     console.log('[分析图片] 调用 qwen3-vl-flash...');
@@ -380,31 +332,20 @@ app.post('/api/generate-image', authMiddleware, async (req, res) => {
   try {
     const {
       prompt,
-      model = 'gemini-3-pro-image-preview',
+      model = 'wanx2.1-t2i-turbo',
       aspectRatio = '1:1',
-      imageSize = '1K',
-      referenceImages = [],   // [{ base64, mimeType }, ...]
-      referenceImage = null,  // 兼容旧单图格式
     } = req.body;
 
     if (!prompt || !prompt.trim()) {
       return res.status(400).json({ error: 'prompt 不能为空' });
     }
+    if (!DASHSCOPE_KEY) return res.status(500).json({ error: '未配置 DASHSCOPE_API_KEY' });
 
-    console.log(`[生图] model=${model} ratio=${aspectRatio} size=${imageSize}`);
+    console.log(`[生图] model=${model} ratio=${aspectRatio}`);
     console.log(`[生图] prompt="${prompt.slice(0, 80)}"`);
 
     let result;
-    if (model === 'midjourney') {
-      result = await generateMidjourney(prompt.trim(), aspectRatio);
-    } else {
-      // 合并：新多图 + 旧单图兼容
-      const allRefs = referenceImages.length > 0
-        ? referenceImages
-        : (referenceImage?.base64 ? [referenceImage] : []);
-      console.log(`[生图] 参考图=${allRefs.length}张`);
-      result = await generateNanoBanana(prompt.trim(), model, aspectRatio, imageSize, allRefs);
-    }
+    result = await generateWanx(prompt.trim(), model, aspectRatio);
 
     console.log(`[生图] 成功，mime=${result.mimeType}`);
     const savedId = persistImage(result.base64, result.mimeType, prompt.trim(), model, 0);
@@ -420,57 +361,48 @@ app.post('/api/generate-image', authMiddleware, async (req, res) => {
   }
 });
 
-// Sora 模型变体 → size / seconds 映射
-// sora_video2-xxx 是前端显示用的选项 ID，实际 API 统一用 sora-2
-const SORA_CONFIG = {
-  'sora_video2':               { size: '704x1280',  seconds: '10' },
-  'sora_video2-landscape':     { size: '1280x704',  seconds: '10' },
-  'sora_video2-15s':           { size: '704x1280',  seconds: '15' },
-  'sora_video2-landscape-15s': { size: '1280x704',  seconds: '15' },
+// WAN 模型变体 → size 映射
+const WAN_CONFIG = {
+  'wan_portrait':  { size: '720*1280',  model: 'wan2.1-t2v-turbo' },
+  'wan_landscape': { size: '1280*720',  model: 'wan2.1-t2v-turbo' },
+  'wan_square':    { size: '960*960',   model: 'wan2.1-t2v-turbo' },
 };
 
 // ── 视频生成接口 ─────────────────────────────────────────────
 app.post('/api/generate-video', authMiddleware, async (req, res) => {
   try {
-    const { prompt, model = 'sora_video2' } = req.body;
+    const { prompt, model = 'wan_landscape' } = req.body;
 
     if (!prompt || !prompt.trim()) {
       return res.status(400).json({ error: 'prompt 不能为空' });
     }
+    if (!DASHSCOPE_KEY) return res.status(500).json({ error: '未配置 DASHSCOPE_API_KEY' });
 
     console.log(`[生视频] model=${model} prompt="${prompt.slice(0, 60)}"`);
 
-    {
-      // ── Sora 2 ───────────────────────────────────────────
-      // Sora 只支持英文，自动翻译中文 prompt
-      const englishPrompt = await ensureEnglish(prompt.trim());
-      const cfg = SORA_CONFIG[model] || { size: '1280x704', seconds: '10' };
+    const englishPrompt = await ensureEnglish(prompt.trim());
+    const cfg = WAN_CONFIG[model] || WAN_CONFIG['wan_landscape'];
 
-      // 最多重试 3 次（老张服务端偶发 "Unable to process request"）
-      let lastErr;
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        try {
-          const response = await axios.post(
-            `${API_BASE}/v1/videos`,
-            { model: 'sora-2', prompt: englishPrompt, size: cfg.size, seconds: cfg.seconds },
-            { headers: { Authorization: `Bearer ${API_KEY}`, 'Content-Type': 'application/json' }, timeout: 30000 }
-          );
-          const data = response.data;
-          if (!data?.id) throw new Error('未获取到任务ID：' + JSON.stringify(data));
-          console.log(`[生视频] Sora 任务已提交(第${attempt}次): ${data.id} (${cfg.size}, ${cfg.seconds}s)`);
-          return res.json({ taskId: data.id, type: 'sora' });
-        } catch (e) {
-          lastErr = e;
-          const msg = e.response?.data?.error?.message || e.message || '';
-          console.warn(`[生视频] Sora 第${attempt}次提交失败: ${msg}`);
-          if (attempt < 3) await new Promise(r => setTimeout(r, 1500 * attempt));
-        }
+    const response = await axios.post(
+      `${DS_API_BASE}/services/aigc/video-generation/video-synthesis`,
+      { model: cfg.model, input: { text: englishPrompt }, parameters: { size: cfg.size } },
+      {
+        headers: {
+          Authorization: `Bearer ${DASHSCOPE_KEY}`,
+          'Content-Type': 'application/json',
+          'X-DashScope-Async': 'enable',
+        },
+        timeout: 30000,
       }
-      throw lastErr;
-    }
+    );
+    const taskId = response.data?.output?.task_id;
+    if (!taskId) throw new Error('未获取到任务ID：' + JSON.stringify(response.data));
+    console.log(`[生视频] WAN 任务已提交: ${taskId} (${cfg.size})`);
+    return res.json({ taskId, type: 'wan' });
 
   } catch (error) {
     const errMsg =
+      error.response?.data?.message ||
       error.response?.data?.error?.message ||
       JSON.stringify(error.response?.data) ||
       error.message;
@@ -480,69 +412,54 @@ app.post('/api/generate-video', authMiddleware, async (req, res) => {
 });
 
 // ── 视频状态查询 ─────────────────────────────────────────────
-// GET /api/video-status?type=sora&taskId=video_xxx
-// GET /api/video-status?type=veo&taskId=veo3:xxx
+// GET /api/video-status?taskId=xxx
+const WAN_STATUS_MAP = {
+  'PENDING':   'submitted',
+  'RUNNING':   'in_progress',
+  'SUCCEEDED': 'completed',
+  'FAILED':    'failed',
+};
+
 app.get('/api/video-status', authMiddleware, async (req, res) => {
   try {
-    const { type, taskId } = req.query;
+    const { taskId } = req.query;
+    if (!taskId) return res.status(400).json({ error: 'taskId 不能为空' });
 
-    if (!type || !taskId) {
-      return res.status(400).json({ error: 'type 和 taskId 不能为空' });
-    }
+    const response = await axios.get(
+      `${DS_API_BASE}/tasks/${taskId}`,
+      { headers: { Authorization: `Bearer ${DASHSCOPE_KEY}` }, timeout: 15000 }
+    );
 
-    if (false) {
-      // Veo 占位
-    } else {
-      // ── Sora 状态 ────────────────────────────────────────
-      const response = await axios.get(
-        `${API_BASE}/v1/videos/${taskId}`,
-        {
-          headers: { Authorization: `Bearer ${API_KEY}` },
-          timeout: 15000,
-        }
-      );
+    const output = response.data?.output || {};
+    const status = WAN_STATUS_MAP[output.task_status] || output.task_status;
+    const videoUrl = status === 'completed' ? `/api/video-proxy/${taskId}` : null;
 
-      const data = response.data;
-      // status: 'submitted' | 'in_progress' | 'completed' | 'failed'
-      // 优先用直链（video_url / result_url / url），无需代理
-      const videoUrl = data.status === 'completed'
-        ? (data.video_url || data.result_url || data.url || `/api/video-proxy/${taskId}`)
-        : null;
-
-      res.json({
-        status: data.status,
-        videoUrl,
-        progress: data.progress ?? null,
-      });
-    }
+    res.json({ status, videoUrl, progress: null });
 
   } catch (error) {
-    const errMsg =
-      error.response?.data?.error?.message ||
-      error.message;
+    const errMsg = error.response?.data?.message || error.message;
     console.error(`[视频状态] 查询失败: ${errMsg}`);
     res.status(500).json({ error: errMsg });
   }
 });
 
-// ── Sora 视频代理（浏览器无法直接带 API Key 访问）───────────────
+// ── WAN 视频代理（代理 DashScope 临时链接）──────────────────────
 app.get('/api/video-proxy/:taskId', authMiddleware, async (req, res) => {
   try {
     const { taskId } = req.params;
-    console.log(`[视频代理] 下载 taskId=${taskId}`);
+    console.log(`[视频代理] taskId=${taskId}`);
 
-    const response = await axios.get(
-      `${API_BASE}/v1/videos/${taskId}/content`,
-      {
-        headers: { Authorization: `Bearer ${API_KEY}` },
-        responseType: 'stream',
-        timeout: 120000,
-      }
+    // 先查任务获取视频 URL
+    const pollRes = await axios.get(
+      `${DS_API_BASE}/tasks/${taskId}`,
+      { headers: { Authorization: `Bearer ${DASHSCOPE_KEY}` }, timeout: 15000 }
     );
+    const videoUrl = pollRes.data?.output?.video_url;
+    if (!videoUrl) return res.status(404).json({ error: '视频未就绪' });
 
+    const response = await axios.get(videoUrl, { responseType: 'stream', timeout: 120000 });
     res.setHeader('Content-Type', response.headers['content-type'] || 'video/mp4');
-    res.setHeader('Content-Disposition', `inline; filename="sora-${taskId}.mp4"`);
-    // 支持视频范围请求（让 <video> 标签能正常播放）
+    res.setHeader('Content-Disposition', `inline; filename="wan-${taskId}.mp4"`);
     if (response.headers['content-length']) {
       res.setHeader('Content-Length', response.headers['content-length']);
     }
@@ -558,15 +475,13 @@ app.get('/api/video-proxy/:taskId', authMiddleware, async (req, res) => {
 app.get('/api/models', (req, res) => {
   res.json({
     image: [
-      { id: 'gemini-3-pro-image-preview',     name: 'NanoBanana Pro', desc: '最高质量' },
-      { id: 'gemini-3.1-flash-image-preview', name: 'NanoBanana 2',   desc: '速度快'   },
-      { id: 'gemini-2.5-flash-image',         name: 'NanoBanana',     desc: '均衡'     },
+      { id: 'wanx2.1-t2i-turbo', name: 'Wanx 2.1 Turbo', desc: '速度快'  },
+      { id: 'wanx2.1-t2i-plus',  name: 'Wanx 2.1 Plus',  desc: '高质量'  },
     ],
     video: [
-      { id: 'sora_video2',               name: 'Sora 2 竖屏',    desc: '10s', group: 'Sora 2' },
-      { id: 'sora_video2-landscape',     name: 'Sora 2 横屏',    desc: '10s', group: 'Sora 2' },
-      { id: 'sora_video2-15s',           name: 'Sora 2 竖屏 长', desc: '15s', group: 'Sora 2' },
-      { id: 'sora_video2-landscape-15s', name: 'Sora 2 横屏 长', desc: '15s', group: 'Sora 2' },
+      { id: 'wan_landscape', name: 'WAN 2.1 横屏', desc: '1280×720',  group: 'WAN 2.1' },
+      { id: 'wan_portrait',  name: 'WAN 2.1 竖屏', desc: '720×1280',  group: 'WAN 2.1' },
+      { id: 'wan_square',    name: 'WAN 2.1 方形', desc: '960×960',   group: 'WAN 2.1' },
     ],
   });
 });
@@ -718,11 +633,9 @@ app.delete('/api/projects/:id', authMiddleware, (req, res) => {
   res.json({ ok: true });
 });
 
-// ── 剧本 Agent (SiliconFlow · MiniMax M1) ───────────────────
-const SILICON_API_KEY = process.env.SILICON_API_KEY;
-const SILICON_BASE    = 'https://api.siliconflow.cn/v1';
-const AGENT_MODEL     = 'Pro/deepseek-ai/DeepSeek-V3.2';
-const AGENT_PROMPT    = fs.readFileSync(path.join(__dirname, 'script-agent-prompt.txt'), 'utf8');
+// ── 剧本 Agent (DashScope · Qwen) ────────────────────────────
+const AGENT_MODEL  = 'qwen-plus';
+const AGENT_PROMPT = fs.readFileSync(path.join(__dirname, 'script-agent-prompt.txt'), 'utf8');
 
 app.post('/api/script-agent', authMiddleware, async (req, res) => {
   const { mode, script = '', shots = [], history = [] } = req.body;
@@ -801,10 +714,10 @@ ${script}`;
 
   try {
     const response = await axios.post(
-      `${SILICON_BASE}/chat/completions`,
+      `${DS_CHAT_BASE}/chat/completions`,
       { model: AGENT_MODEL, messages, stream: true, max_tokens: 8192 },
       {
-        headers: { Authorization: `Bearer ${SILICON_API_KEY}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${DASHSCOPE_KEY}`, 'Content-Type': 'application/json' },
         responseType: 'stream',
         timeout: 120000,
       }
@@ -924,10 +837,10 @@ app.post('/api/asset-agent', authMiddleware, async (req, res) => {
 
   try {
     const response = await axios.post(
-      `${SILICON_BASE}/chat/completions`,
+      `${DS_CHAT_BASE}/chat/completions`,
       { model: AGENT_MODEL, messages, stream: true, max_tokens: 4096 },
       {
-        headers: { Authorization: `Bearer ${SILICON_API_KEY}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${DASHSCOPE_KEY}`, 'Content-Type': 'application/json' },
         responseType: 'stream', timeout: 120000,
       }
     );
@@ -975,5 +888,5 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`✅ AIGC 后端运行在 http://localhost:${PORT}`);
-  console.log(`   API Key: ${API_KEY ? API_KEY.slice(0, 10) + '...' : '❌ 未设置！'}`);
+  console.log(`   DashScope Key: ${DASHSCOPE_KEY ? DASHSCOPE_KEY.slice(0, 10) + '...' : '❌ 未设置！'}`);
 });
