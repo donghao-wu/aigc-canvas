@@ -619,7 +619,8 @@ function Step3({ status, setStatus, shots, assets, videos, setVideos, enabled }:
         }
       })
 
-      setStatus('done')
+      const anySubmitted = videosRef.current.some(v => v.status !== 'failed')
+      setStatus(anySubmitted ? 'done' : 'failed')
     } catch (err) {
       setStatus('failed')
     }
