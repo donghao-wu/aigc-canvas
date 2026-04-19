@@ -58,25 +58,31 @@ async function streamSSE(
   let buf = ''
   let full = ''
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buf += decoder.decode(value, { stream: true })
-    const lines = buf.split('\n')
-    buf = lines.pop() ?? ''
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue
-      const data = line.slice(6).trim()
-      if (data === '[DONE]') return full
-      try {
-        const p = JSON.parse(data)
-        if (p.error) throw new Error(p.error)
-        if (p.text) { full += p.text; onText(full) }
-      } catch (e) {
-        if (e instanceof Error && e.message.startsWith('HTTP')) throw e
-        if (e instanceof Error && e.message !== '') throw e
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+      const lines = buf.split('\n')
+      buf = lines.pop() ?? ''
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        const data = line.slice(6).trim()
+        if (data === '[DONE]') return full
+        try {
+          const p = JSON.parse(data)
+          if (p.error) throw new Error(p.error)
+          if (p.text) { full += p.text; onText(full) }
+        } catch (e) {
+          if (e instanceof Error && e.message.startsWith('HTTP')) throw e
+          if (e instanceof SyntaxError) continue
+          // other unexpected errors: re-throw
+          throw e
+        }
       }
     }
+  } finally {
+    reader.cancel()
   }
   return full
 }
