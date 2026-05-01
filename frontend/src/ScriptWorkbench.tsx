@@ -3,7 +3,6 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import axios from 'axios'
 import { useTheme } from './ThemeContext'
-import AssetPanel from './AssetPanel'
 
 function authHeaders(): Record<string, string> {
   const token = localStorage.getItem('auth_token')
@@ -11,916 +10,884 @@ function authHeaders(): Record<string, string> {
 }
 
 // ── 类型 ─────────────────────────────────────────────────────
-type Phase =
-  | 'idle'
-  | 'analyzing'
-  | 'analyzed'      // 分析完成，等待用户选择（3个按钮）
-  | 'chatting'      // AI 正在响应
-  | 'chat_done'     // AI 回复完成，等待下一步（2个按钮）
-  | 'outlining'
-  | 'outline_ready'
-  | 'generating'
-  | 'done'
-
-interface ChatMessage { role: 'user' | 'assistant'; content: string }
-
-interface ShotItem {
-  id: string
-  header: string   // 镜头 01 | CU 特写 | 平视 | 静止
-  details: string  // 画面：...\n叙事目的：...
-  isGroup?: boolean  // 幕/场 分组标题，不可编辑
+interface GenerateParams {
+  genre: string
+  theme: string
+  episodes: number
+  duration: string
+  protagonist: string
+  style: string
+  requirements: string
 }
 
-interface PromptCard { id: string; number: string; content: string }
-
-const MAX_CHARS = 5000
-
-// ── 解析多行大纲 ─────────────────────────────────────────────
-// 标准景别缩写集合，用于判断第二字段是否为"地点"
-const SHOT_TYPES = new Set(['LS','MS','CU','MCU','ECU','ELS','WS','MLS','VLS','BCU','XCU','EWS'])
-
-// 从镜头行提取地点字段（第二 | 字段，非景别即地点）
-function extractLocation(header: string): string {
-  const parts = header.split('|')
-  if (parts.length < 2) return ''
-  const field = parts[1].trim()
-  if (SHOT_TYPES.has(field.toUpperCase())) return ''
-  return field
+interface EpisodeOutline {
+  index: number      // 0-based
+  title: string
+  plot: string
+  hook: string
+  ending: string
+  raw: string        // original line for display
 }
 
-// 去掉镜头头部的地点字段，还原为标准格式：镜头 XX | 景别 | 角度 | 运动 — 叙事
-function stripLocationField(header: string): string {
-  const parts = header.split('|')
-  if (parts.length < 2) return header
-  const field = parts[1].trim()
-  if (!SHOT_TYPES.has(field.toUpperCase()) && parts.length >= 3) {
-    // 有地点字段，去掉它
-    return parts[0].trimEnd() + ' |' + parts.slice(2).join('|')
-  }
-  return header
+interface EpisodeDraft {
+  index: number
+  content: string
+  summary: string
+  status: 'pending' | 'generating' | 'done' | 'error'
 }
 
-function parseOutline(raw: string): ShotItem[] {
-  const shots: ShotItem[] = []
-  let curHeader = ''
-  let curDetails: string[] = []
-  let counter = 0
-  let lastLocation = ''
-  let sceneCount = 0   // 场次计数，用于自动生成 "第N场·地点"
+interface ScriptData {
+  params: GenerateParams | null
+  storyBible: string
+  episodeMapText: string
+  episodeMap: EpisodeOutline[]
+  episodes: EpisodeDraft[]
+}
 
-  const flush = () => {
-    if (!curHeader) return
+type SelectedItem = 'params' | 'bible' | 'map' | number
 
-    // 地点变化时自动插入分组标题（第N场·地点）
-    const loc = extractLocation(curHeader)
-    if (loc && loc !== lastLocation) {
-      sceneCount++
-      shots.push({
-        id: `group_${Date.now()}_${counter++}`,
-        header: `第${sceneCount}场 · ${loc}`,
-        details: '',
-        isGroup: true,
-      })
-      lastLocation = loc
-    }
+const GENRES  = ['都市', '古装', '悬疑', '甜宠', '逆袭', '职场', '家庭', '青春', '豪门', '其他']
+const STYLES  = ['爽文', '轻喜', '正剧', '虐恋', '悬疑烧脑', '热血励志', '甜宠']
+const DURATIONS = [
+  { label: '1分钟/集', value: '1' },
+  { label: '3分钟/集', value: '3' },
+  { label: '5分钟/集', value: '5' },
+]
+const EPISODE_PRESETS = [10, 20, 30, 60, 80, 100]
 
-    // 存储时去掉地点字段，保持卡片头部整洁
-    shots.push({
-      id: `shot_${Date.now()}_${counter++}`,
-      header: stripLocationField(curHeader),
-      details: curDetails.join('\n'),
+const DEFAULT_PARAMS: GenerateParams = {
+  genre: '都市', theme: '', episodes: 60, duration: '3',
+  protagonist: '', style: '爽文', requirements: '',
+}
+
+const EMPTY_DATA: ScriptData = {
+  params: null, storyBible: '', episodeMapText: '',
+  episodeMap: [], episodes: [],
+}
+
+// ── SSE 流式请求 ─────────────────────────────────────────────
+async function streamSSE(
+  body: Record<string, unknown>,
+  onChunk: (text: string) => void,
+  onDone: (full: string) => void,
+  onError: (msg: string) => void,
+  signal?: AbortSignal,
+) {
+  try {
+    const resp = await fetch('/api/script-agent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(body),
+      signal,
     })
-    curHeader = ''
-    curDetails = []
-  }
+    if (!resp.ok || !resp.body) { onError('请求失败'); return }
 
-  for (const raw_line of raw.split('\n')) {
-    const line = raw_line.trim()
-    if (/^场景[：:]/.test(line)) {
-      flush()
-      const label = line.replace(/^场景[：:]\s*/, '')
-      if (label) {
-        sceneCount++
-        shots.push({ id: `group_${Date.now()}_${counter++}`, header: `第${sceneCount}场 · ${label}`, details: '', isGroup: true })
-        lastLocation = label
+    const reader = resp.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let full = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed.startsWith('data: ')) continue
+        const data = trimmed.slice(6)
+        if (data === '[DONE]') continue
+        try {
+          const parsed = JSON.parse(data)
+          if (parsed.error) { onError(parsed.error); return }
+          if (parsed.text) { full += parsed.text; onChunk(parsed.text) }
+        } catch {}
       }
-    } else if (/^镜头\s*\d+\s*\|/.test(line)) {
-      flush()
-      curHeader = line
-    } else if (curHeader && line && !/^(分镜大纲|共\s*\d+|等待|输出完整|以上是|请问|---)/.test(line)) {
-      curDetails.push(line)
     }
+    onDone(full)
+  } catch (e: any) {
+    if (e.name === 'AbortError') return
+    onError(e.message || '未知错误')
   }
-  flush()
-  return shots
 }
 
-// ── 解析提示词输出 ────────────────────────────────────────────
-function parsePrompts(raw: string): PromptCard[] {
-  return raw
-    .split(/(?=^镜头\s*\d+\s*\|)/m)
-    .map(p => p.trim())
-    .filter(p => p.length > 0)
-    .map(p => ({
-      id: `prompt_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
-      number: p.match(/^镜头\s*(\d+)/)?.[1] ?? '??',
-      content: p,
-    }))
-}
-
-async function copyText(text: string) {
-  try { await navigator.clipboard.writeText(text) } catch {}
-}
-
-// ── Markdown 样式包装 ─────────────────────────────────────────
-function MdContent({ content, color, subColor }: { content: string; color: string; subColor: string }) {
-  return (
-    <div style={{ fontSize: 13, lineHeight: 1.85, color, fontFamily: 'inherit' }}
-      className="md-content">
-      <style>{`
-        .md-content h1,.md-content h2,.md-content h3{font-weight:600;margin:1.2em 0 0.4em;color:${color}}
-        .md-content h1{font-size:16px}.md-content h2{font-size:15px}.md-content h3{font-size:14px}
-        .md-content p{margin:0.5em 0}
-        .md-content ul,.md-content ol{margin:0.4em 0;padding-left:1.4em}
-        .md-content li{margin:0.2em 0}
-        .md-content strong{font-weight:600;color:${color}}
-        .md-content em{color:${subColor}}
-        .md-content code{font-size:11px;padding:1px 5px;border-radius:3px;background:rgba(128,128,128,0.12)}
-        .md-content hr{border:none;border-top:1px solid rgba(128,128,128,0.2);margin:1em 0}
-        .md-content blockquote{border-left:3px solid rgba(128,128,128,0.3);margin:0.5em 0;padding-left:10px;color:${subColor}}
-        .md-content table{border-collapse:collapse;width:100%;margin:0.6em 0;font-size:12px}
-        .md-content th,.md-content td{border:1px solid rgba(128,128,128,0.2);padding:6px 10px;text-align:left}
-        .md-content th{background:rgba(128,128,128,0.08);font-weight:600;color:${color}}
-        .md-content tr:nth-child(even) td{background:rgba(128,128,128,0.04)}
-      `}</style>
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
-    </div>
-  )
+// ── 解析集数大纲 ─────────────────────────────────────────────
+function parseEpisodeMap(text: string): EpisodeOutline[] {
+  const lines = text.split('\n').filter(l => /^第\d+集/.test(l.trim()))
+  return lines.map(line => {
+    const raw = line.trim()
+    const titleMatch = raw.match(/^第(\d+)集《(.+?)》/)
+    const plotMatch  = raw.match(/情节[：:]\s*(.+?)(?:\s*\||\s*$)/)
+    const hookMatch  = raw.match(/钩子[：:]\s*(.+?)(?:\s*\||\s*$)/)
+    const endMatch   = raw.match(/结尾[：:]\s*(.+?)(?:\s*$)/)
+    return {
+      index:  titleMatch ? parseInt(titleMatch[1]) - 1 : 0,
+      title:  titleMatch ? titleMatch[2] : `第${raw.slice(1, 3)}集`,
+      plot:   plotMatch  ? plotMatch[1].trim()  : '',
+      hook:   hookMatch  ? hookMatch[1].trim()  : '',
+      ending: endMatch   ? endMatch[1].trim()   : '',
+      raw,
+    }
+  })
 }
 
 // ── 主组件 ───────────────────────────────────────────────────
-export default function ScriptWorkbench({ projectId, projectName, onHome, onSwitchToCanvas }: { projectId: string; projectName: string; onHome: () => void; onSwitchToCanvas: () => void }) {
+interface Props {
+  projectId: string
+  projectName: string
+  onHome: () => void
+  onSwitchToCanvas: () => void
+}
+
+export default function ScriptWorkbench({ projectId, projectName, onHome, onSwitchToCanvas }: Props) {
   const { theme, T, toggle } = useTheme()
 
-  const [script,     setScript]     = useState('')
-  const [phase,      setPhase]      = useState<Phase>('idle')
-  const [streamText, setStreamText] = useState('')
-  const [messages,   setMessages]   = useState<ChatMessage[]>([])
-  const [chatInput,  setChatInput]  = useState('')
-  const [shots,       setShots]       = useState<ShotItem[]>([])
-  const [prompts,     setPrompts]     = useState<PromptCard[]>([])
-  const [copiedId,      setCopiedId]      = useState<string | null>(null)
-  const [history,       setHistory]       = useState<ChatMessage[]>([])
-  const [showHistory,   setShowHistory]   = useState(false)
-  const [showChatInput, setShowChatInput] = useState(false)
-  const [analyzedScript, setAnalyzedScript] = useState('')
-  const [wbSaveStatus,   setWbSaveStatus]   = useState<'saved' | 'saving' | 'unsaved'>('saved')
-  const wbSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [rightTab,      setRightTab]      = useState<'prompts' | 'assets'>('prompts')
-  const [assets,        setAssets]        = useState<import('./AssetPanel').AssetItem[]>([])
+  // ── 核心状态 ───────────────────────────────────────────────
+  const [data, setData]             = useState<ScriptData>(EMPTY_DATA)
+  const [params, setParams]         = useState<GenerateParams>(DEFAULT_PARAMS)
+  const [selected, setSelected]     = useState<SelectedItem>('params')
+  const [streamBuf, setStreamBuf]   = useState('')   // 当前正在 stream 的文字
+  const [busy, setBusy]             = useState(false)
+  const [error, setError]           = useState('')
+  const [paused, setPaused]         = useState(false)
+  const [saveMsg, setSaveMsg]       = useState('')
 
-  const streamRef     = useRef<string>('')
-  const chatEndRef    = useRef<HTMLDivElement>(null)
-  const wbInitialized = useRef(false)
-  const scriptRef     = useRef(script)
-  const shotsRef   = useRef(shots)
-  const promptsRef = useRef(prompts)
-  const assetsRef  = useRef(assets)
-  useEffect(() => { scriptRef.current  = script  }, [script])
-  useEffect(() => { shotsRef.current   = shots   }, [shots])
-  useEffect(() => { promptsRef.current = prompts }, [prompts])
-  useEffect(() => { assetsRef.current  = assets  }, [assets])
+  const abortRef    = useRef<AbortController | null>(null)
+  const pauseRef    = useRef(false)
+  const dataRef     = useRef<ScriptData>(EMPTY_DATA)  // always in sync with data
+  dataRef.current   = data
 
-  // 卸载时立即保存（防止防抖未触发就退出）
+  // ── 加载已保存的剧本数据 ──────────────────────────────────
   useEffect(() => {
-    return () => {
-      if (!wbInitialized.current) return
-      fetch(`/api/projects/${projectId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('auth_token')}` },
-        body: JSON.stringify({ workbench: { script: scriptRef.current, shots: shotsRef.current, prompts: promptsRef.current, assets: assetsRef.current } }),
-      }).catch(() => {})
-    }
-  }, [projectId])
-
-  // 加载工作台数据
-  useEffect(() => {
-    wbInitialized.current = false
-    fetch(`/api/projects/${projectId}`, {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('auth_token')}` }
-      })
-      .then(r => r.json())
-      .then(data => {
-        const wb = data.workbench
-        if (wb) {
-          if (wb.script)          setScript(wb.script)
-          if (wb.shots?.length)   { setShots(wb.shots);   setPhase('outline_ready') }
-          if (wb.prompts?.length) { setPrompts(wb.prompts); setPhase('done') }
-          if (wb.assets?.length)  setAssets(wb.assets)
+    axios.get(`/api/projects/${projectId}/script`, { headers: authHeaders() })
+      .then(({ data: saved }) => {
+        if (saved.storyBible || saved.episodes?.length) {
+          setData(saved)
+          if (saved.params) setParams(saved.params)
+          // 自动导航到合适位置
+          if (saved.episodes?.length > 0) {
+            const lastDone = saved.episodes.filter((e: EpisodeDraft) => e.status === 'done').length
+            setSelected(lastDone > 0 ? lastDone - 1 : 'bible')
+          } else if (saved.storyBible) {
+            setSelected('bible')
+          }
         }
-        setTimeout(() => { wbInitialized.current = true; setWbSaveStatus('saved') }, 300)
       })
-      .catch(() => { wbInitialized.current = true })
+      .catch(() => {})
   }, [projectId])
 
-  // 自动保存工作台（2 秒防抖）
-  useEffect(() => {
-    if (!wbInitialized.current) return
-    setWbSaveStatus('unsaved')
-    if (wbSaveTimer.current) clearTimeout(wbSaveTimer.current)
-    wbSaveTimer.current = setTimeout(async () => {
-      setWbSaveStatus('saving')
-      try {
-        await fetch(`/api/projects/${projectId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('auth_token')}` },
-          body: JSON.stringify({ workbench: { script, shots, prompts, assets } }),
-        })
-        setWbSaveStatus('saved')
-      } catch { setWbSaveStatus('unsaved') }
-    }, 2000)
-  }, [script, shots, prompts, assets, projectId])
-
-  // 自动滚到底部
-  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, streamText])
-
-  // ── 流式请求核心 ─────────────────────────────────────────
-  const streamRequest = useCallback(async (
-    payload: Record<string, unknown>,
-    onDone: (full: string) => void,
-  ) => {
-    streamRef.current = ''
-    setStreamText('')
-
+  // ── 保存到后端 ────────────────────────────────────────────
+  const saveToServer = useCallback(async (d: ScriptData) => {
     try {
-      const res = await fetch('/api/script-agent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('auth_token')}` },
-        body: JSON.stringify(payload),
-      })
-      if (!res.body) throw new Error('No response body')
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buf = ''
+      await axios.put(`/api/projects/${projectId}/script`, { ...d, params }, { headers: authHeaders() })
+      setSaveMsg('已保存')
+      setTimeout(() => setSaveMsg(''), 2000)
+    } catch {}
+  }, [projectId, params])
 
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buf += decoder.decode(value, { stream: true })
-        const lines = buf.split('\n')
-        buf = lines.pop() ?? ''
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue
-          const data = line.slice(6)
-          if (data.trim() === '[DONE]') { onDone(streamRef.current); return }
-          try {
-            const p = JSON.parse(data)
-            if (p.error) { setStreamText(prev => prev + `\n\n**错误：** ${p.error}`); onDone(streamRef.current); return }
-            if (p.text) { streamRef.current += p.text; setStreamText(streamRef.current) }
-          } catch {}
-        }
+  const updateData = useCallback((patch: Partial<ScriptData>, save = false) => {
+    setData(prev => {
+      const next = { ...prev, ...patch }
+      if (save) saveToServer(next)
+      return next
+    })
+  }, [saveToServer])
+
+  // ── 阶段计算 ─────────────────────────────────────────────
+  const hasBible    = !!data.storyBible
+  const hasMap      = data.episodeMap.length > 0
+  const doneCount   = data.episodes.filter(e => e.status === 'done').length
+  const totalEps    = params.episodes
+  const allDone     = hasMap && doneCount >= totalEps
+
+  // ── Step 1: 生成故事圣经 ──────────────────────────────────
+  const handleGenerateBible = useCallback(() => {
+    if (busy) return
+    setBusy(true); setError(''); setStreamBuf(''); setSelected('bible')
+    abortRef.current = new AbortController()
+
+    let full = ''
+    streamSSE(
+      { mode: 'story_bible', ...params },
+      chunk => { full += chunk; setStreamBuf(full) },
+      fullText => {
+        updateData({ storyBible: fullText, params }, true)
+        setStreamBuf('')
+        setBusy(false)
+      },
+      msg => { setError(msg); setBusy(false); setStreamBuf('') },
+      abortRef.current.signal,
+    )
+  }, [busy, params, updateData])
+
+  // ── Step 2: 生成集数大纲 ─────────────────────────────────
+  const handleGenerateMap = useCallback(() => {
+    if (busy || !hasBible) return
+    setBusy(true); setError(''); setStreamBuf(''); setSelected('map')
+    abortRef.current = new AbortController()
+
+    let full = ''
+    streamSSE(
+      { mode: 'episode_map', storyBible: data.storyBible, episodes: params.episodes },
+      chunk => { full += chunk; setStreamBuf(full) },
+      fullText => {
+        const map = parseEpisodeMap(fullText)
+        const episodes: EpisodeDraft[] = Array.from({ length: params.episodes }, (_, i) => ({
+          index: i, content: '', summary: '', status: 'pending',
+        }))
+        updateData({ episodeMapText: fullText, episodeMap: map, episodes }, true)
+        setStreamBuf('')
+        setBusy(false)
+      },
+      msg => { setError(msg); setBusy(false); setStreamBuf('') },
+      abortRef.current.signal,
+    )
+  }, [busy, hasBible, data.storyBible, params.episodes, updateData])
+
+  // ── Step 3: 逐集生成循环 ─────────────────────────────────
+  const generateEpisodesFrom = useCallback(async (startIndex: number) => {
+    const d = dataRef.current
+    if (!d.storyBible || d.episodeMap.length === 0) return
+
+    pauseRef.current = false
+    setPaused(false)
+    setBusy(true)
+    setError('')
+
+    const controller = new AbortController()
+    abortRef.current = controller
+
+    for (let i = startIndex; i < params.episodes; i++) {
+      if (pauseRef.current || controller.signal.aborted) break
+
+      // 标记当前集为 generating
+      setData(prev => {
+        const eps = [...prev.episodes]
+        if (eps[i]) eps[i] = { ...eps[i], status: 'generating' }
+        return { ...prev, episodes: eps }
+      })
+      setSelected(i)
+      setStreamBuf('')
+
+      const d2 = dataRef.current
+      const outline = d2.episodeMap[i]
+      const currentOutline = outline?.raw || `第${i + 1}集`
+      const prevSummaries = d2.episodes
+        .slice(Math.max(0, i - 5), i)
+        .filter(e => e.summary)
+        .map(e => e.summary)
+
+      let epContent = ''
+      let episodeError = false
+
+      await new Promise<void>(resolve => {
+        streamSSE(
+          {
+            mode: 'write_episode',
+            storyBible: d2.storyBible,
+            episodeMapText: d2.episodeMapText.slice(0, 2000),
+            episodeIndex: i,
+            currentOutline,
+            previousSummaries: prevSummaries,
+            duration: params.duration,
+            totalEpisodes: params.episodes,
+          },
+          chunk => { epContent += chunk; setStreamBuf(epContent) },
+          _full => { resolve() },
+          msg => { setError(`第${i + 1}集生成失败: ${msg}`); episodeError = true; resolve() },
+          controller.signal,
+        )
+      })
+
+      if (pauseRef.current || controller.signal.aborted) {
+        setData(prev => {
+          const eps = [...prev.episodes]
+          if (eps[i]) eps[i] = { ...eps[i], status: 'pending' }
+          return { ...prev, episodes: eps }
+        })
+        break
       }
-      onDone(streamRef.current)
-    } catch (err) {
-      setStreamText(prev => prev + `\n\n**网络错误：** ${String(err)}`)
-      setPhase('analyzed')
+
+      // 摘要（快速）
+      let summary = ''
+      if (!episodeError && epContent) {
+        await new Promise<void>(resolve => {
+          streamSSE(
+            { mode: 'summarize_episode', episodeContent: epContent, episodeIndex: i },
+            chunk => { summary += chunk },
+            _full => { resolve() },
+            _err => { resolve() },
+            controller.signal,
+          )
+        })
+      }
+
+      // 保存这集
+      setData(prev => {
+        const eps = [...prev.episodes]
+        if (eps[i]) eps[i] = {
+          ...eps[i],
+          content: epContent,
+          summary: summary.trim(),
+          status: episodeError ? 'error' : 'done',
+        }
+        const next = { ...prev, episodes: eps }
+        // 每5集保存一次，最后一集一定保存
+        if (i % 5 === 4 || i === params.episodes - 1) saveToServer(next)
+        return next
+      })
+      setStreamBuf('')
     }
+
+    setBusy(false)
+    if (pauseRef.current) setPaused(true)
+  }, [params.episodes, params.duration, saveToServer])
+
+  const handleStartEpisodes = useCallback(() => {
+    const startFrom = data.episodes.findIndex(e => e.status === 'pending' || e.status === 'error')
+    generateEpisodesFrom(startFrom === -1 ? 0 : startFrom)
+  }, [data.episodes, generateEpisodesFrom])
+
+  const handlePause = useCallback(() => {
+    pauseRef.current = true
   }, [])
 
-  // ── Mode A：分析剧本 ──────────────────────────────────────
-  const handleAnalyze = useCallback(() => {
-    if (!script.trim() || phase === 'analyzing') return
-    setPhase('analyzing')
-    setMessages([])
-    setShots([])
-    setPrompts([])
-    setHistory([])
-    setShowChatInput(false)
-    streamRequest({ mode: 'analyze', script }, full => {
-      const newHistory: ChatMessage[] = [
-        { role: 'user', content: `【模式A · 剧本分析】\n\n${script}` },
-        { role: 'assistant', content: full },
-      ]
-      setHistory(newHistory)
-      setMessages([{ role: 'assistant', content: full }])
-      setStreamText('')
-      setAnalyzedScript(script)
-      setPhase('analyzed')
+  const handleResume = useCallback(() => {
+    const nextPending = dataRef.current.episodes.findIndex(e => e.status === 'pending' || e.status === 'error')
+    if (nextPending === -1) return
+    generateEpisodesFrom(nextPending)
+  }, [generateEpisodesFrom])
+
+  // ── 提取资产 ─────────────────────────────────────────────
+  const handleExtractAssets = useCallback(() => {
+    if (!data.storyBible) return
+    // 用前5集内容 + 故事圣经作为资产提取源
+    const sampleContent = data.episodes
+      .filter(e => e.content)
+      .slice(0, 5)
+      .map(e => e.content)
+      .join('\n\n---\n\n')
+    const source = data.storyBible + (sampleContent ? '\n\n' + sampleContent : '')
+    // 保存到 localStorage 让 ExtractAssets 使用
+    localStorage.setItem(`extract_src_${projectId}`, source)
+    alert('请切换到生图模块使用资产提取功能（功能完善中）')
+  }, [data, projectId])
+
+  // ── 工具 ─────────────────────────────────────────────────
+  const setParam = <K extends keyof GenerateParams>(k: K, v: GenerateParams[K]) =>
+    setParams(p => ({ ...p, [k]: v }))
+
+  const updateEpisodeContent = (index: number, content: string) => {
+    setData(prev => {
+      const eps = [...prev.episodes]
+      if (eps[index]) eps[index] = { ...eps[index], content }
+      return { ...prev, episodes: eps }
     })
-  }, [script, phase, streamRequest])
-
-  // ── 一键同意修改（预设消息）────────────────────────────
-  const handleAutoModify = useCallback(() => {
-    const presetMsg = '请根据以上节奏分析，直接对剧本进行修改，输出完整的修改版本剧本，不要询问是否继续。'
-    const userMsg: ChatMessage = { role: 'user', content: '同意修改，请直接输出修改后的完整剧本' }
-    setMessages(prev => [...prev, userMsg])
-    setShowChatInput(false)
-    setPhase('chatting')
-    const newHistory: ChatMessage[] = [...history, { role: 'user', content: presetMsg }]
-    streamRequest({ mode: 'chat', message: presetMsg, script, history: newHistory }, full => {
-      const aiMsg: ChatMessage = { role: 'assistant', content: full }
-      setMessages(prev => [...prev, aiMsg])
-      setHistory(prev => [...prev, userMsg, aiMsg])
-      setStreamText('')
-      setPhase('chat_done')
-    })
-  }, [history, script, streamRequest])
-
-  // ── 自定义聊天 ────────────────────────────────────────────
-  const handleChat = useCallback(() => {
-    const msg = chatInput.trim()
-    if (!msg || phase === 'chatting') return
-    const userMsg: ChatMessage = { role: 'user', content: msg }
-    setMessages(prev => [...prev, userMsg])
-    setChatInput('')
-    setShowChatInput(false)
-    setPhase('chatting')
-    const newHistory: ChatMessage[] = [...history, userMsg]
-    streamRequest({ mode: 'chat', message: msg, script, history: newHistory }, full => {
-      const aiMsg: ChatMessage = { role: 'assistant', content: full }
-      setMessages(prev => [...prev, aiMsg])
-      setHistory(prev => [...prev, userMsg, aiMsg])
-      setStreamText('')
-      setPhase('chat_done')
-    })
-  }, [chatInput, history, phase, script, streamRequest])
-
-  // ── Mode B Step1：生成大纲 ────────────────────────────────
-  const handleOutline = useCallback(() => {
-    if (!script.trim() || phase === 'outlining') return
-    setPhase('outlining')
-    setMessages([])
-    setShots([])
-    setPrompts([])
-    // 保留已有对话历史，让 AI 知道剧本修改上下文
-    // Only pass history if script hasn't changed since last analysis
-    const outlineHistory = script === analyzedScript ? history : []
-    streamRequest({ mode: 'outline', script, history: outlineHistory }, full => {
-      setShots(parseOutline(full))
-      setHistory(prev => [
-        ...prev,
-        { role: 'user', content: `【模式B · 分镜大纲】\n\n${script}` },
-        { role: 'assistant', content: full },
-      ])
-      setStreamText('')
-      setPhase('outline_ready')
-    })
-  }, [script, phase, history, analyzedScript, streamRequest])
-
-  // ── Mode B Step2：生成完整提示词 ──────────────────────────
-  const handleGeneratePrompts = useCallback(() => {
-    if (shots.length === 0 || phase === 'generating') return
-    setPhase('generating')
-    setPrompts([])
-    const shotTexts = shots.map(s => `${s.header}\n${s.details}`)
-    streamRequest({ mode: 'prompts', script, shots: shotTexts.map(t => ({ text: t })), history }, full => {
-      setPrompts(parsePrompts(full))
-      setStreamText('')
-      setPhase('done')
-    })
-  }, [shots, phase, script, history, streamRequest])
-
-  // ── 大纲编辑 ─────────────────────────────────────────────
-  const updateShotHeader  = (id: string, v: string) => setShots(p => p.map(s => s.id === id ? { ...s, header: v } : s))
-  const updateShotDetails = (id: string, v: string) => setShots(p => p.map(s => s.id === id ? { ...s, details: v } : s))
-  const deleteShot        = (id: string) => setShots(p => p.filter(s => s.id !== id))
-  const insertGroupHeader = (beforeId: string, type: '幕' | '场') => setShots(p => {
-    const idx = p.findIndex(s => s.id === beforeId)
-    if (idx === -1) return p
-    // 自动计算编号
-    const existingGroups = p.slice(0, idx).filter(s => s.isGroup && s.header.startsWith(type === '幕' ? '第' : '第') && s.header.includes(type))
-    const num = existingGroups.length + 1
-    const label = type === '幕' ? `第${num}幕 · 幕名` : `第${num}场 · 场景名`
-    const g: ShotItem = { id: `group_${Date.now()}`, header: label, details: '', isGroup: true }
-    return [...p.slice(0, idx), g, ...p.slice(idx)]
-  })
-  const addShot = () => setShots(p => [...p, {
-    id: `shot_${Date.now()}`,
-    header: `镜头 ${String(p.length + 1).padStart(2, '0')} | CU 特写 | 平视 | 静止`,
-    details: '画面：\n叙事目的：',
-  }])
-
-  // ── 复制 ─────────────────────────────────────────────────
-  const handleCopy = async (id: string, text: string) => {
-    await copyText(text); setCopiedId(id); setTimeout(() => setCopiedId(null), 1500)
-  }
-  const handleCopyAll = async () => {
-    await copyText(prompts.map(p => p.content).join('\n\n---\n\n'))
-    setCopiedId('all'); setTimeout(() => setCopiedId(null), 1500)
   }
 
-  const [sentIds, setSentIds] = useState<Set<string>>(new Set())
-  const handleSendPromptToCanvas = async (p: PromptCard, index: number) => {
-    try {
-      const { data: proj } = await axios.get(`/api/projects/${projectId}`, { headers: authHeaders() })
-      const existingNodes: unknown[] = proj.nodes || []
-      const newNode = {
-        id: `prompt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        type: 'textNode',
-        position: { x: 4200, y: 2000 + index * 320 },
-        data: { name: `镜头 ${p.number}`, content: p.content },
-      }
-      await axios.put(`/api/projects/${projectId}`, { nodes: [...existingNodes, newNode], edges: proj.edges || [] }, { headers: authHeaders() })
-      window.dispatchEvent(new CustomEvent('canvas-refresh'))
-      setSentIds(prev => new Set(prev).add(p.id))
-      setTimeout(() => setSentIds(prev => { const s = new Set(prev); s.delete(p.id); return s }), 2000)
-    } catch { /* ignore */ }
+  // ── 当前显示内容 ──────────────────────────────────────────
+  const mainContent = () => {
+    if (selected === 'params') return null  // 由下面的 ParamsForm 处理
+    if (selected === 'bible') {
+      const text = (busy && streamBuf && selected === 'bible') ? streamBuf : data.storyBible
+      return <MarkdownView text={text} T={T} streaming={busy && selected === 'bible'} />
+    }
+    if (selected === 'map') {
+      const text = (busy && streamBuf && selected === 'map') ? streamBuf : data.episodeMapText
+      return <MarkdownView text={text} T={T} streaming={busy && selected === 'map'} />
+    }
+    if (typeof selected === 'number') {
+      const ep = data.episodes[selected]
+      const isGeneratingThis = busy && typeof selected === 'number'
+        && data.episodes[selected]?.status === 'generating'
+      const displayText = isGeneratingThis ? streamBuf : (ep?.content || '')
+      return (
+        <EpisodeContentView
+          index={selected}
+          content={displayText}
+          streaming={isGeneratingThis}
+          T={T}
+          onChange={c => updateEpisodeContent(selected, c)}
+        />
+      )
+    }
+    return null
   }
 
-  const isStreaming = ['analyzing', 'chatting', 'outlining', 'generating'].includes(phase)
-  const overLimit = script.length > MAX_CHARS
+  // ── 阶段指示器状态 ────────────────────────────────────────
+  const phase =
+    !hasBible ? 1 :
+    !hasMap   ? 2 :
+    doneCount < totalEps ? 3 : 4
 
-  const realShotCount = shots.filter(s => !s.isGroup).length
-
-  const centerTitle =
-    phase === 'analyzing'    ? '分析中...' :
-    phase === 'analyzed'     ? '分析报告' :
-    phase === 'chatting'     ? '思考中...' :
-    phase === 'chat_done'    ? '修改记录' :
-    phase === 'outlining'    ? '大纲生成中...' :
-    (phase === 'outline_ready' || phase === 'done') ? `分镜大纲 · ${realShotCount} 个镜头` : ''
-
+  // ── 渲染 ─────────────────────────────────────────────────
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: T.canvasBg, color: T.text, overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', width: '100vw', height: '100vh', background: T.canvasBg, overflow: 'hidden' }}>
 
-      {/* 顶栏 */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 20px', height: 50, flexShrink: 0, borderBottom: `1px solid ${T.border}`, background: T.headerBg, backdropFilter: 'blur(24px)' }}>
-        {/* 返回按钮 */}
-        <button
-          onClick={onHome}
-          className="btn-pill"
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600,
-            color: T.text,
-            background: 'rgba(201,152,42,0.1)',
-            border: `1px solid rgba(201,152,42,0.2)`,
-            borderRadius: 999, cursor: 'pointer', padding: '5px 12px 5px 8px',
-          }}
-        >
-          <div style={{ width: 20, height: 20, borderRadius: 5, background: 'rgba(201,152,42,0.15)', border: '1px solid rgba(201,152,42,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <img src="/logo.svg" style={{ width: 12, height: 12 }} />
+      {/* ── 顶部导航 ───────────────────────────────────────── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', background: T.headerBg, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
+        <button onClick={onHome} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: '3px 8px', borderRadius: 8 }}
+          onMouseEnter={e => (e.currentTarget.style.background = T.nodeSubtle)}
+          onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
+          <div style={{ width: 22, height: 22, borderRadius: 6, background: 'rgba(201,152,42,0.12)', border: '1px solid rgba(201,152,42,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <img src="/logo.svg" style={{ width: 13, height: 13 }} />
           </div>
-          壹镜
+          <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>壹镜</span>
         </button>
-
-        <div style={{ width: 1, height: 14, background: T.border }} />
-        <span style={{ fontSize: 13, fontWeight: 500, color: T.textSub, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{projectName}</span>
-        <div style={{ width: 1, height: 14, background: T.border }} />
-
-        {/* 分段控件 */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: T.nodeSubtle, border: `1px solid ${T.border}`, borderRadius: 8, padding: 3 }}>
-          <button
-            onClick={onSwitchToCanvas}
-            style={{ fontSize: 12, padding: '4px 11px', borderRadius: 6, border: 'none', cursor: 'pointer', background: 'transparent', color: T.textSub, transition: 'color 0.15s' }}
+        <div style={{ width: 1, height: 16, background: T.border }} />
+        <span style={{ fontSize: 13, color: T.textSub, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{projectName}</span>
+        <div style={{ width: 1, height: 16, background: T.border }} />
+        <div style={{ display: 'flex', gap: 2, background: T.nodeSubtle, border: `1px solid ${T.border}`, borderRadius: 8, padding: 3 }}>
+          <button style={{ fontSize: 12, fontWeight: 600, padding: '4px 14px', borderRadius: 6, border: 'none', cursor: 'default', background: theme === 'dark' ? 'rgba(201,152,42,0.18)' : 'rgba(184,135,14,0.12)', color: T.accent }}>剧本</button>
+          <button onClick={onSwitchToCanvas} style={{ fontSize: 12, fontWeight: 400, padding: '4px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', background: 'transparent', color: T.textSub }}
             onMouseEnter={e => (e.currentTarget.style.color = T.text)}
-            onMouseLeave={e => (e.currentTarget.style.color = T.textSub)}
-          >画布</button>
-          <button style={{
-            fontSize: 12, fontWeight: 600, padding: '4px 11px', borderRadius: 6, border: 'none', cursor: 'default',
-            background: theme === 'dark' ? 'rgba(201,152,42,0.15)' : 'rgba(184,135,14,0.12)',
-            color: T.accent,
-            boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
-          }}>剧本工作台</button>
+            onMouseLeave={e => (e.currentTarget.style.color = T.textSub)}>生图</button>
         </div>
-
-        <div style={{ width: 1, height: 14, background: T.border }} />
-
-        {/* 保存状态 */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <div style={{
-            width: 5, height: 5, borderRadius: '50%',
-            background: wbSaveStatus === 'saved' ? 'rgba(80,200,100,0.7)' : wbSaveStatus === 'saving' ? 'rgba(201,152,42,0.9)' : 'rgba(255,120,100,0.7)',
-            transition: 'background 0.3s',
-          }} />
-          <span style={{ fontSize: 11, color: wbSaveStatus === 'saving' ? 'rgba(201,152,42,0.8)' : T.textMuted }}>
-            {wbSaveStatus === 'saved' ? '已保存' : wbSaveStatus === 'saving' ? '保存中' : '未保存'}
-          </span>
-        </div>
-
         <div style={{ flex: 1 }} />
-        <button
-          onClick={toggle}
-          style={{ fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px', borderRadius: 6, color: T.textSub, transition: 'color 0.15s, background 0.15s' }}
-          onMouseEnter={e => { e.currentTarget.style.color = T.text; e.currentTarget.style.background = T.nodeSubtle }}
-          onMouseLeave={e => { e.currentTarget.style.color = T.textSub; e.currentTarget.style.background = 'none' }}
-        >
+        {busy && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', background: 'rgba(201,152,42,0.1)', borderRadius: 6, border: '1px solid rgba(201,152,42,0.2)' }}>
+            <span style={{ fontSize: 11, color: T.accent }}>
+              {typeof selected === 'number'
+                ? `生成第 ${selected + 1}/${totalEps} 集...`
+                : selected === 'bible' ? '生成故事圣经...'
+                : '生成集数大纲...'}
+            </span>
+          </div>
+        )}
+        {saveMsg && <span style={{ fontSize: 11, color: 'rgba(80,200,100,0.8)' }}>{saveMsg}</span>}
+        {error && <span style={{ fontSize: 11, color: 'rgba(239,68,68,0.9)', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={error}>{error}</span>}
+        <button onClick={toggle} style={{ fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', padding: '3px 8px', color: T.textSub, borderRadius: 6 }}>
           {theme === 'dark' ? '◑ 浅色' : '◑ 深色'}
         </button>
       </div>
 
-      {/* 主体三栏 */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', gap: 10, padding: 10 }}>
+      {/* ── 阶段进度条 ─────────────────────────────────────── */}
+      <PhaseBar phase={phase} doneCount={doneCount} totalEps={totalEps} T={T} />
 
-        {/* ── 左栏：剧本输入 ── */}
-        <div style={{ width: 300, flexShrink: 0, display: 'flex', flexDirection: 'column', borderRadius: 12, background: T.nodeBg, border: `1px solid ${T.border}`, boxShadow: theme === 'dark' ? '0 2px 12px rgba(0,0,0,0.4)' : '0 2px 12px rgba(0,0,0,0.06)', padding: 16, gap: 12, overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>剧本</span>
-            <span style={{ fontSize: 11, color: overLimit ? 'rgba(255,59,48,0.8)' : T.textMuted }}>{script.length} / {MAX_CHARS}</span>
+      {/* ── 主体区域 ───────────────────────────────────────── */}
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+
+        {/* 左侧导航栏 */}
+        <EpisodeNav
+          data={data}
+          selected={selected}
+          busy={busy}
+          streaming={busy ? streamBuf : ''}
+          onSelect={setSelected}
+          T={T}
+          theme={theme}
+        />
+
+        {/* 主内容区 */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ flex: 1, overflow: 'auto', padding: selected === 'params' ? 0 : 24 }}>
+            {selected === 'params'
+              ? (
+                <ParamsForm
+                  params={params}
+                  setParam={setParam}
+                  T={T}
+                  theme={theme}
+                  hasBible={hasBible}
+                />
+              )
+              : mainContent()
+            }
           </div>
 
-          <textarea
-            value={script}
-            onChange={e => setScript(e.target.value)}
-            placeholder={'粘贴或输入剧本内容...\n\n建议单集或单场景，5000 字以内。'}
-            style={{ flex: 1, resize: 'none', padding: 12, borderRadius: 8, fontSize: 12, lineHeight: 1.75, background: T.inputBg, border: `1px solid ${T.border}`, color: T.text, outline: 'none', fontFamily: 'inherit' }}
-            onFocus={e => (e.target.style.borderColor = T.borderMid)}
-            onBlur={e  => (e.target.style.borderColor = T.border)}
+          {/* 底部操作栏 */}
+          <ActionBar
+            phase={phase}
+            busy={busy}
+            paused={paused}
+            hasBible={hasBible}
+            hasMap={hasMap}
+            doneCount={doneCount}
+            totalEps={totalEps}
+            allDone={allDone}
+            onGenerateBible={handleGenerateBible}
+            onGenerateMap={handleGenerateMap}
+            onStartEpisodes={handleStartEpisodes}
+            onPause={handlePause}
+            onResume={handleResume}
+            onSwitchToCanvas={onSwitchToCanvas}
+            onExtractAssets={handleExtractAssets}
+            T={T}
           />
-
-          {overLimit && (
-            <div style={{ fontSize: 11, color: 'rgba(255,59,48,0.8)', padding: '6px 10px', borderRadius: 6, background: 'rgba(255,59,48,0.08)', border: '1px solid rgba(255,59,48,0.2)' }}>超出字数限制</div>
-          )}
-          {analyzedScript && script !== analyzedScript && !overLimit && (
-            <div style={{ fontSize: 11, color: 'rgba(200,150,50,0.9)', padding: '6px 10px', borderRadius: 6, background: 'rgba(200,150,50,0.08)', border: '1px solid rgba(200,150,50,0.2)' }}>
-              剧本已修改，建议重新分析后再生成分镜
-            </div>
-          )}
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <button
-              onClick={handleAnalyze}
-              disabled={!script.trim() || overLimit || isStreaming}
-              style={{ padding: '9px 0', borderRadius: 7, fontSize: 12, fontWeight: 500, background: T.inputBg, border: `1px solid ${T.border}`, color: (!script.trim() || overLimit || isStreaming) ? T.textMuted : T.text, cursor: (!script.trim() || overLimit || isStreaming) ? 'not-allowed' : 'pointer' }}
-            >{phase === 'analyzing' ? '分析中...' : '分析剧本节奏'}</button>
-
-            <button
-              onClick={handleOutline}
-              disabled={!script.trim() || overLimit || isStreaming}
-              style={{ padding: '9px 0', borderRadius: 7, fontSize: 12, fontWeight: 600, background: (!script.trim() || overLimit || isStreaming) ? T.nodeSubtle : T.btnBg, border: 'none', color: (!script.trim() || overLimit || isStreaming) ? T.textMuted : T.btnText, cursor: (!script.trim() || overLimit || isStreaming) ? 'not-allowed' : 'pointer' }}
-            >{phase === 'outlining' ? '生成中...' : '生成分镜大纲'}</button>
-          </div>
-
-          <div style={{ fontSize: 11, color: T.textMuted, lineHeight: 1.7, padding: '10px 12px', borderRadius: 7, background: T.nodeSubtle, border: `1px solid ${T.border}` }}>
-            <div style={{ fontWeight: 500, marginBottom: 4, color: T.textSub }}>工作流</div>
-            <div>1. 输入剧本</div>
-            <div>2. 可选：分析节奏并与 AI 讨论</div>
-            <div>3. 生成分镜大纲，审核编辑</div>
-            <div>4. 确认后生成 Seedance 提示词</div>
-          </div>
         </div>
-
-        {/* ── 中栏：分析/聊天/大纲 ── */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderRadius: 12, background: T.nodeBg, border: `1px solid ${T.border}`, boxShadow: theme === 'dark' ? '0 2px 12px rgba(0,0,0,0.4)' : '0 2px 12px rgba(0,0,0,0.06)', minWidth: 0, overflow: 'hidden' }}>
-          {/* 中栏标题 */}
-          {phase !== 'idle' && (
-            <div style={{ padding: '12px 20px', borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-              <span style={{ fontSize: 12, fontWeight: 500, color: T.text }}>{centerTitle}</span>
-              {(phase === 'outline_ready' || phase === 'done') && (
-                <div style={{ display: 'flex', gap: 8 }}>
-                  {messages.length > 0 && (
-                    <button
-                      onClick={() => setShowHistory(v => !v)}
-                      style={{ fontSize: 11, padding: '4px 10px', borderRadius: 5, background: showHistory ? T.borderMid : T.nodeSubtle, border: `1px solid ${T.border}`, color: T.textSub, cursor: 'pointer' }}
-                    >{showHistory ? '隐藏对话' : '对话记录'}</button>
-                  )}
-                  <button onClick={addShot} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 5, background: T.nodeSubtle, border: `1px solid ${T.border}`, color: T.textSub, cursor: 'pointer' }}>+ 添加镜头</button>
-                  {phase === 'outline_ready' && realShotCount > 0 && (
-                    <button onClick={handleGeneratePrompts} style={{ fontSize: 11, padding: '4px 12px', borderRadius: 5, background: T.btnBg, border: 'none', color: T.btnText, cursor: 'pointer', fontWeight: 500 }}>确认，生成提示词</button>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* 中栏内容 */}
-          <div style={{ flex: 1, overflow: 'auto', padding: phase === 'analyzed' || phase === 'chatting' ? '0' : '20px' }}>
-
-            {/* 空状态 */}
-            {phase === 'idle' && (
-              <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <div style={{ textAlign: 'center', color: T.textMuted }}>
-                  <div style={{ fontSize: 28, marginBottom: 10, opacity: 0.3 }}>✦</div>
-                  <div style={{ fontSize: 13 }}>输入剧本，点击左侧按钮开始</div>
-                </div>
-              </div>
-            )}
-
-            {/* 分析中：流式 Markdown */}
-            {phase === 'analyzing' && (
-              <div style={{ padding: 20 }}>
-                <MdContent content={streamText + (isStreaming ? ' ▌' : '')} color={T.text} subColor={T.textSub} />
-              </div>
-            )}
-
-            {/* 分析完成 / 修改中 / 修改完成 */}
-            {(phase === 'analyzed' || phase === 'chatting' || phase === 'chat_done') && (
-              <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                {/* 消息列表 */}
-                <div style={{ flex: 1, overflow: 'auto', padding: '20px 20px 0' }}>
-                  {messages.map((msg, i) => (
-                    <div key={i} style={{ marginBottom: 20 }}>
-                      {msg.role === 'user' ? (
-                        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                          <div style={{ maxWidth: '80%', padding: '8px 14px', borderRadius: 10, background: T.btnBg, color: T.btnText, fontSize: 13, lineHeight: 1.6 }}>
-                            {msg.content}
-                          </div>
-                        </div>
-                      ) : (
-                        <div style={{ padding: '0 4px' }}>
-                          <MdContent content={msg.content} color={T.text} subColor={T.textSub} />
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                  {/* 流式输出中 */}
-                  {phase === 'chatting' && streamText && (
-                    <div style={{ padding: '0 4px', marginBottom: 20 }}>
-                      <MdContent content={streamText + ' ▌'} color={T.text} subColor={T.textSub} />
-                    </div>
-                  )}
-                  <div ref={chatEndRef} />
-                </div>
-
-                {/* 底部操作区 */}
-                <div style={{ padding: '12px 20px 16px', borderTop: `1px solid ${T.border}`, flexShrink: 0 }}>
-
-                  {/* 分析完成后：3 个选择按钮 */}
-                  {phase === 'analyzed' && !showChatInput && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>选择下一步</div>
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <button onClick={handleAutoModify} style={{ flex: 1, padding: '8px 0', borderRadius: 7, fontSize: 12, fontWeight: 600, background: T.btnBg, border: 'none', color: T.btnText, cursor: 'pointer' }}>
-                          同意修改
-                        </button>
-                        <button onClick={handleOutline} style={{ flex: 1, padding: '8px 0', borderRadius: 7, fontSize: 12, background: T.nodeSubtle, border: `1px solid ${T.border}`, color: T.text, cursor: 'pointer' }}>
-                          直接输出分镜
-                        </button>
-                        <button onClick={() => { setShowChatInput(true); setTimeout(() => document.getElementById('chat-input')?.focus(), 50) }} style={{ flex: 1, padding: '8px 0', borderRadius: 7, fontSize: 12, background: T.nodeSubtle, border: `1px solid ${T.border}`, color: T.textSub, cursor: 'pointer' }}>
-                          自定义修改
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* AI 回复后：2 个选择按钮 */}
-                  {phase === 'chat_done' && !showChatInput && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>选择下一步</div>
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <button onClick={() => { setShowChatInput(true); setTimeout(() => document.getElementById('chat-input')?.focus(), 50) }} style={{ flex: 1, padding: '8px 0', borderRadius: 7, fontSize: 12, background: T.nodeSubtle, border: `1px solid ${T.border}`, color: T.textSub, cursor: 'pointer' }}>
-                          继续修改
-                        </button>
-                        <button onClick={handleOutline} style={{ flex: 1, padding: '8px 0', borderRadius: 7, fontSize: 12, fontWeight: 600, background: T.btnBg, border: 'none', color: T.btnText, cursor: 'pointer' }}>
-                          输出分镜大纲
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* 自定义输入框（仅在需要时出现）*/}
-                  {showChatInput && phase !== 'chatting' && (
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <input
-                        value={chatInput}
-                        onChange={e => setChatInput(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleChat() } }}
-                        id="chat-input"
-                        placeholder="输入修改意见，按 Enter 发送..."
-                        style={{ flex: 1, padding: '8px 12px', borderRadius: 7, fontSize: 13, background: T.inputBg, border: `1px solid ${T.border}`, color: T.text, outline: 'none', fontFamily: 'inherit' }}
-                        onFocus={e => (e.target.style.borderColor = T.borderMid)}
-                        onBlur={e  => (e.target.style.borderColor = T.border)}
-                      />
-                      <button
-                        onClick={handleChat}
-                        disabled={!chatInput.trim()}
-                        style={{ padding: '8px 16px', borderRadius: 7, fontSize: 12, fontWeight: 500, background: chatInput.trim() ? T.btnBg : T.nodeSubtle, border: 'none', color: chatInput.trim() ? T.btnText : T.textMuted, cursor: chatInput.trim() ? 'pointer' : 'not-allowed' }}
-                      >发送</button>
-                    </div>
-                  )}
-
-                  {/* 正在思考中提示 */}
-                  {phase === 'chatting' && (
-                    <div style={{ fontSize: 11, color: T.textMuted }}>AI 思考中...</div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* 大纲生成中：流式 Markdown */}
-            {phase === 'outlining' && (
-              <MdContent content={streamText + ' ▌'} color={T.text} subColor={T.textSub} />
-            )}
-
-            {/* 大纲卡片（可编辑） */}
-            {(phase === 'outline_ready' || phase === 'done') && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-
-                {/* 折叠的对话历史 */}
-                {showHistory && messages.length > 0 && (
-                  <div style={{ borderRadius: 8, overflow: 'hidden', border: `1px solid ${T.border}`, marginBottom: 4 }}>
-                    <div style={{ padding: '8px 12px', background: T.nodeSubtle, borderBottom: `1px solid ${T.border}`, fontSize: 11, color: T.textMuted }}>对话记录</div>
-                    <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 12, maxHeight: 280, overflow: 'auto' }}>
-                      {messages.map((msg, i) => (
-                        <div key={i}>
-                          {msg.role === 'user' ? (
-                            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                              <div style={{ maxWidth: '80%', padding: '6px 12px', borderRadius: 8, background: T.btnBg, color: T.btnText, fontSize: 12, lineHeight: 1.6 }}>{msg.content}</div>
-                            </div>
-                          ) : (
-                            <MdContent content={msg.content} color={T.text} subColor={T.textSub} />
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {realShotCount === 0 && shots.length === 0 && (
-                  <div style={{ textAlign: 'center', color: T.textMuted, fontSize: 13, padding: '40px 0' }}>
-                    未能解析出大纲，请点击「+ 添加镜头」手动添加
-                  </div>
-                )}
-                {(() => {
-                  let shotNum = 0
-
-                  // 插入幕/场行 — 默认不可见，悬浮显示后不消失直到鼠标离开
-                  const InsertRow = ({ beforeId }: { beforeId: string }) => (
-                    <div style={{ display: 'flex', alignItems: 'center', height: 20, opacity: 0, transition: 'opacity 0.15s' }}
-                      onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
-                      onMouseLeave={e => (e.currentTarget.style.opacity = '0')}
-                    >
-                      <div style={{ flex: 1, borderTop: `1px dashed ${T.borderMid}` }} />
-                      <button onClick={() => insertGroupHeader(beforeId, '幕')} style={{ fontSize: 10, padding: '1px 8px', margin: '0 3px', borderRadius: 3, background: 'transparent', border: `1px dashed ${T.borderMid}`, color: T.textSub, cursor: 'pointer' }}>+ 幕</button>
-                      <button onClick={() => insertGroupHeader(beforeId, '场')} style={{ fontSize: 10, padding: '1px 8px', margin: '0 3px', borderRadius: 3, background: 'transparent', border: `1px dashed ${T.borderMid}`, color: T.textSub, cursor: 'pointer' }}>+ 场</button>
-                      <div style={{ flex: 1, borderTop: `1px dashed ${T.borderMid}` }} />
-                    </div>
-                  )
-
-                  return shots.map((shot, idx) => {
-                    if (shot.isGroup) {
-                      const isAct = /幕/.test(shot.header)
-                      return (
-                        <React.Fragment key={shot.id}>
-                          <InsertRow beforeId={shot.id} />
-                          {/* 幕/场 分割线 */}
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: isAct ? '16px 0 8px' : '10px 0 4px' }}>
-                            <div style={{ flex: 1, height: isAct ? 1 : 1, background: T.borderMid }} />
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                              <input
-                                value={shot.header}
-                                onChange={e => updateShotHeader(shot.id, e.target.value)}
-                                style={{
-                                  fontSize: isAct ? 12 : 11,
-                                  fontWeight: isAct ? 700 : 500,
-                                  color: isAct ? T.text : T.textSub,
-                                  background: 'transparent', border: 'none', outline: 'none',
-                                  textAlign: 'center', letterSpacing: '0.05em',
-                                  minWidth: 60,
-                                }}
-                              />
-                              <button onClick={() => deleteShot(shot.id)}
-                                style={{ fontSize: 10, background: 'none', border: 'none', color: 'rgba(255,59,48,0.55)', cursor: 'pointer', padding: 0, lineHeight: 1 }}
-                                onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,59,48,0.8)')}
-                                onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,59,48,0.55)')}
-                              >✕</button>
-                            </div>
-                            <div style={{ flex: 1, height: 1, background: T.borderMid }} />
-                          </div>
-                        </React.Fragment>
-                      )
-                    }
-
-                    shotNum++
-                    const num = shotNum
-                    // 解析镜头头部为结构化部分
-                    const parts = shot.header.split('|').map(s => s.trim())
-                    const shotCode = parts[0] ?? ''   // 镜头 01
-                    const shotType = parts[1] ?? ''   // ELS
-                    const motionRaw = parts.slice(2).join('|')  // 仰视·固定 — 叙事
-                    const dashIdx = motionRaw.indexOf('—')
-                    const motion = dashIdx >= 0 ? motionRaw.slice(0, dashIdx).trim() : motionRaw.trim()
-                    const desc   = dashIdx >= 0 ? motionRaw.slice(dashIdx + 1).trim() : ''
-                    const isParsed = parts.length >= 3
-
-                    return (
-                      <React.Fragment key={shot.id}>
-                        <InsertRow beforeId={shot.id} />
-                        <div
-                          style={{ borderRadius: 7, background: T.nodeBg, border: `1px solid ${T.border}`, overflow: 'hidden' }}
-                          onMouseEnter={e => { const btn = e.currentTarget.querySelector<HTMLElement>('.del-btn'); if (btn) btn.style.opacity = '1' }}
-                          onMouseLeave={e => { const btn = e.currentTarget.querySelector<HTMLElement>('.del-btn'); if (btn) btn.style.opacity = '0' }}
-                        >
-                          {isParsed ? (
-                            // 结构化显示
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-                              {/* 序号 */}
-                              <span style={{ fontSize: 10, color: T.textSub, width: 30, textAlign: 'center', flexShrink: 0, fontVariantNumeric: 'tabular-nums', borderRight: `1px solid ${T.border}`, padding: '10px 0' }}>{num}</span>
-                              {/* 景别 badge */}
-                              <span style={{ fontSize: 10, fontWeight: 600, color: T.text, background: T.nodeSubtle, padding: '10px 8px', borderRight: `1px solid ${T.border}`, flexShrink: 0, letterSpacing: '0.04em', fontFamily: 'monospace' }}>{shotType}</span>
-                              {/* 角度/运动 */}
-                              <span style={{ fontSize: 11, color: T.textSub, padding: '10px 8px', borderRight: `1px solid ${T.border}`, flexShrink: 0, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{motion}</span>
-                              {/* 描述 */}
-                              <span style={{ flex: 1, fontSize: 12, color: T.text, padding: '10px 10px', lineHeight: 1.4 }}>{desc || motionRaw}</span>
-                              <button className="del-btn" onClick={() => deleteShot(shot.id)}
-                                style={{ opacity: 0, transition: 'opacity 0.15s', fontSize: 11, padding: '10px 10px', background: 'none', border: 'none', color: 'rgba(255,59,48,0.7)', cursor: 'pointer', flexShrink: 0 }}
-                              >✕</button>
-                            </div>
-                          ) : (
-                            // 降级：直接编辑
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px' }}>
-                              <span style={{ fontSize: 10, color: T.textMuted, width: 20, textAlign: 'right', flexShrink: 0 }}>{num}</span>
-                              <input value={shot.header} onChange={e => updateShotHeader(shot.id, e.target.value)}
-                                style={{ flex: 1, fontSize: 12, background: 'transparent', border: 'none', outline: 'none', color: T.text, fontFamily: 'monospace' }} />
-                              <button className="del-btn" onClick={() => deleteShot(shot.id)}
-                                style={{ opacity: 0, transition: 'opacity 0.15s', fontSize: 11, padding: '2px 4px', background: 'none', border: 'none', color: 'rgba(255,59,48,0.7)', cursor: 'pointer' }}
-                              >✕</button>
-                            </div>
-                          )}
-                        </div>
-                        {shot.details.trim() && (
-                          <textarea value={shot.details} onChange={e => updateShotDetails(shot.id, e.target.value)}
-                            rows={2} style={{ width: '100%', padding: '6px 10px 6px 38px', resize: 'none', background: T.nodeSubtle, border: `1px solid ${T.border}`, borderTop: 'none', borderRadius: '0 0 7px 7px', outline: 'none', fontSize: 11, lineHeight: 1.6, color: T.textSub, fontFamily: 'inherit', boxSizing: 'border-box' }}
-                          />
-                        )}
-                      </React.Fragment>
-                    )
-                  })
-                })()}
-
-                {phase === 'outline_ready' && realShotCount > 0 && (
-                  <button
-                    onClick={handleGeneratePrompts}
-                    style={{ marginTop: 4, padding: '10px 0', borderRadius: 7, fontSize: 12, fontWeight: 600, background: T.btnBg, border: 'none', color: T.btnText, cursor: 'pointer' }}
-                  >确认大纲，生成 Seedance 提示词</button>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* ── 右栏：提示词 / 资产 ── */}
-        <div style={{ width: 380, flexShrink: 0, display: 'flex', flexDirection: 'column', borderRadius: 12, background: T.nodeBg, border: `1px solid ${T.border}`, boxShadow: theme === 'dark' ? '0 2px 12px rgba(0,0,0,0.4)' : '0 2px 12px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
-
-          {/* Tab 标题栏 */}
-          <div style={{ padding: '0 16px', borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 0, flexShrink: 0, height: 44 }}>
-            {(['prompts', 'assets'] as const).map(tab => (
-              <button key={tab} onClick={() => setRightTab(tab)} style={{
-                padding: '0 14px', height: '100%', fontSize: 12, fontWeight: rightTab === tab ? 600 : 400,
-                background: 'none', border: 'none', cursor: 'pointer',
-                color: rightTab === tab ? T.text : T.textMuted,
-                borderBottom: rightTab === tab ? `2px solid ${T.text}` : '2px solid transparent',
-                transition: 'color 0.15s',
-              }}>
-                {tab === 'prompts'
-                  ? (phase === 'done' ? `提示词 · ${prompts.length} 镜头` : '提示词')
-                  : '资产'}
-              </button>
-            ))}
-            {/* 提示词 tab 的复制全部按钮 */}
-            {rightTab === 'prompts' && phase === 'done' && prompts.length > 0 && (
-              <>
-                <div style={{ flex: 1 }} />
-                <button onClick={handleCopyAll} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 5, background: copiedId === 'all' ? T.btnBg : T.nodeSubtle, border: `1px solid ${T.border}`, color: copiedId === 'all' ? T.btnText : T.textSub, cursor: 'pointer' }}>
-                  {copiedId === 'all' ? '已复制' : '复制全部'}
-                </button>
-              </>
-            )}
-          </div>
-
-          {/* 提示词 Tab 内容 */}
-          {rightTab === 'prompts' && (
-            <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
-              {!['generating', 'done'].includes(phase) && (
-                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <div style={{ textAlign: 'center', color: T.textMuted, fontSize: 12 }}>确认大纲后，提示词将显示在这里</div>
-                </div>
-              )}
-              {phase === 'generating' && (
-                <pre style={{ fontSize: 11, lineHeight: 1.8, color: T.text, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'inherit', margin: 0 }}>
-                  {streamText}<span style={{ opacity: 0.5 }}>▌</span>
-                </pre>
-              )}
-              {phase === 'done' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {prompts.map((p, idx) => (
-                    <div key={p.id} style={{ borderRadius: 8, overflow: 'hidden', background: T.nodeBg, border: `1px solid ${T.border}` }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 12px', borderBottom: `1px solid ${T.border}`, background: T.nodeSubtle }}>
-                        <span style={{ fontSize: 11, fontWeight: 500, color: T.textSub }}>镜头 {p.number}</span>
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          <button onClick={() => handleSendPromptToCanvas(p, idx)} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, background: sentIds.has(p.id) ? T.btnBg : T.inputBg, border: `1px solid ${T.border}`, color: sentIds.has(p.id) ? T.btnText : T.textSub, cursor: 'pointer', transition: 'all 0.15s' }}>
-                            {sentIds.has(p.id) ? '已发送' : '发送到画布'}
-                          </button>
-                          <button onClick={() => handleCopy(p.id, p.content)} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, background: copiedId === p.id ? T.btnBg : T.inputBg, border: `1px solid ${T.border}`, color: copiedId === p.id ? T.btnText : T.textSub, cursor: 'pointer', transition: 'all 0.15s' }}>
-                            {copiedId === p.id ? '已复制' : '复制'}
-                          </button>
-                        </div>
-                      </div>
-                      <pre style={{ margin: 0, padding: '10px 12px', fontSize: 11, lineHeight: 1.75, color: T.text, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'inherit' }}>
-                        {p.content}
-                      </pre>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* 资产 Tab 内容 */}
-          {rightTab === 'assets' && (
-            <AssetPanel promptTexts={prompts.map(p => p.content)} script={script} projectId={projectId} assets={assets} onAssetsChange={setAssets} />
-          )}
-        </div>
-
       </div>
+    </div>
+  )
+}
+
+// ── 阶段进度条 ───────────────────────────────────────────────
+function PhaseBar({ phase, doneCount, totalEps, T }: { phase: number; doneCount: number; totalEps: number; T: any }) {
+  const steps = [
+    { n: 1, label: '① 生成配置' },
+    { n: 2, label: '② 故事圣经' },
+    { n: 3, label: '③ 集数大纲' },
+    { n: 4, label: `④ 逐集生成 ${doneCount}/${totalEps}` },
+  ]
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', padding: '8px 20px', borderBottom: `1px solid ${T.border}`, background: T.headerBg, flexShrink: 0, gap: 0 }}>
+      {steps.map((s, i) => {
+        const done = s.n < phase
+        const active = s.n === phase
+        return (
+          <React.Fragment key={s.n}>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '4px 12px', borderRadius: 6,
+              background: active ? 'rgba(201,152,42,0.12)' : 'transparent',
+              border: active ? '1px solid rgba(201,152,42,0.3)' : '1px solid transparent',
+            }}>
+              <span style={{
+                width: 18, height: 18, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 10, fontWeight: 700,
+                background: done ? 'rgba(80,200,100,0.2)' : active ? 'rgba(201,152,42,0.2)' : T.nodeSubtle,
+                color: done ? 'rgba(80,200,100,0.9)' : active ? T.accent : T.textMuted,
+                border: `1px solid ${done ? 'rgba(80,200,100,0.3)' : active ? 'rgba(201,152,42,0.4)' : T.border}`,
+              }}>{done ? '✓' : s.n}</span>
+              <span style={{ fontSize: 12, fontWeight: active ? 600 : 400, color: done ? 'rgba(80,200,100,0.8)' : active ? T.accent : T.textMuted }}>
+                {s.label}
+              </span>
+            </div>
+            {i < steps.length - 1 && (
+              <div style={{ width: 20, height: 1, background: T.border, margin: '0 2px' }} />
+            )}
+          </React.Fragment>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── 左侧导航 ─────────────────────────────────────────────────
+function EpisodeNav({ data, selected, busy, streaming, onSelect, T, theme }: {
+  data: ScriptData; selected: SelectedItem; busy: boolean; streaming: string
+  onSelect: (s: SelectedItem) => void; T: any; theme: string
+}) {
+  const statusIcon = (ep: EpisodeDraft) => {
+    if (ep.status === 'done') return '✓'
+    if (ep.status === 'generating') return '⏳'
+    if (ep.status === 'error') return '✗'
+    return '○'
+  }
+  const statusColor = (ep: EpisodeDraft) => {
+    if (ep.status === 'done') return 'rgba(80,200,100,0.8)'
+    if (ep.status === 'generating') return T.accent
+    if (ep.status === 'error') return 'rgba(239,68,68,0.8)'
+    return T.textMuted
+  }
+
+  return (
+    <div style={{
+      width: 220, flexShrink: 0,
+      borderRight: `1px solid ${T.border}`,
+      display: 'flex', flexDirection: 'column',
+      overflow: 'hidden',
+      background: theme === 'dark' ? 'rgba(0,0,0,0.2)' : 'rgba(0,0,0,0.02)',
+    }}>
+      {/* 固定项：配置 / 故事圣经 / 集数大纲 */}
+      <div style={{ flexShrink: 0, borderBottom: `1px solid ${T.border}` }}>
+        {[
+          { key: 'params' as SelectedItem, icon: '⚙️', label: '生成配置' },
+          { key: 'bible' as SelectedItem, icon: '📖', label: '故事圣经', has: !!data.storyBible },
+          { key: 'map' as SelectedItem, icon: '🗺', label: '集数大纲', has: data.episodeMap.length > 0 },
+        ].map(item => (
+          <button
+            key={String(item.key)}
+            onClick={() => onSelect(item.key)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              width: '100%', padding: '9px 14px', textAlign: 'left',
+              background: selected === item.key ? (theme === 'dark' ? 'rgba(201,152,42,0.1)' : 'rgba(184,135,14,0.08)') : 'none',
+              border: 'none', cursor: 'pointer',
+              borderLeft: selected === item.key ? `2px solid ${T.accent}` : '2px solid transparent',
+            }}
+          >
+            <span style={{ fontSize: 13 }}>{item.icon}</span>
+            <span style={{ fontSize: 12, fontWeight: selected === item.key ? 600 : 400, color: selected === item.key ? T.text : T.textSub }}>
+              {item.label}
+            </span>
+            {'has' in item && item.has && (
+              <span style={{ marginLeft: 'auto', fontSize: 10, color: 'rgba(80,200,100,0.8)' }}>✓</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* 集数列表 */}
+      <div style={{ flex: 1, overflow: 'auto' }}>
+        {data.episodes.length === 0 ? (
+          <div style={{ padding: '12px 14px', fontSize: 11, color: T.textMuted, textAlign: 'center' }}>
+            生成集数大纲后<br />此处显示集数列表
+          </div>
+        ) : (
+          data.episodes.map((ep, i) => {
+            const outline = data.episodeMap[i]
+            const isSelected = selected === i
+            return (
+              <button
+                key={i}
+                onClick={() => onSelect(i)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  width: '100%', padding: '7px 14px', textAlign: 'left',
+                  background: isSelected ? (theme === 'dark' ? 'rgba(201,152,42,0.1)' : 'rgba(184,135,14,0.08)') : 'none',
+                  border: 'none', cursor: 'pointer',
+                  borderLeft: isSelected ? `2px solid ${T.accent}` : '2px solid transparent',
+                }}
+              >
+                <span style={{ fontSize: 10, color: statusColor(ep), width: 12, textAlign: 'center', flexShrink: 0 }}>
+                  {statusIcon(ep)}
+                </span>
+                <span style={{
+                  fontSize: 11,
+                  fontWeight: isSelected ? 600 : 400,
+                  color: ep.status === 'pending' ? T.textMuted : isSelected ? T.text : T.textSub,
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>
+                  第{i + 1}集{outline?.title ? `《${outline.title}》` : ''}
+                </span>
+              </button>
+            )
+          })
+        )}
+      </div>
+
+      {/* 进度摘要 */}
+      {data.episodes.length > 0 && (
+        <div style={{ flexShrink: 0, padding: '8px 14px', borderTop: `1px solid ${T.border}`, fontSize: 11, color: T.textMuted }}>
+          {data.episodes.filter(e => e.status === 'done').length}/{data.episodes.length} 集已完成
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── 生成配置表单 ─────────────────────────────────────────────
+function ParamsForm({ params, setParam, T, theme, hasBible }: {
+  params: GenerateParams
+  setParam: <K extends keyof GenerateParams>(k: K, v: GenerateParams[K]) => void
+  T: any; theme: string; hasBible: boolean
+}) {
+  const inputStyle: React.CSSProperties = {
+    width: '100%', padding: '7px 10px', borderRadius: 7,
+    border: `1px solid ${T.border}`, background: T.inputBg,
+    color: T.text, fontSize: 13, outline: 'none',
+  }
+  return (
+    <div style={{ maxWidth: 640, margin: '0 auto', padding: '32px 24px' }}>
+      <h2 style={{ fontSize: 18, fontWeight: 700, color: T.text, marginBottom: 6 }}>剧本生成配置</h2>
+      <p style={{ fontSize: 13, color: T.textSub, marginBottom: 28 }}>
+        填写完成后，系统将分三步自动生成：故事圣经 → 集数大纲 → 逐集剧本
+      </p>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+
+        {/* 类型 */}
+        <div>
+          <label style={{ fontSize: 12, color: T.textMuted, display: 'block', marginBottom: 5 }}>短剧类型</label>
+          <select value={params.genre} onChange={e => setParam('genre', e.target.value)} style={inputStyle}>
+            {['都市', '古装', '悬疑', '甜宠', '逆袭', '职场', '家庭', '青春', '豪门', '其他'].map(g => <option key={g}>{g}</option>)}
+          </select>
+        </div>
+
+        {/* 风格 */}
+        <div>
+          <label style={{ fontSize: 12, color: T.textMuted, display: 'block', marginBottom: 5 }}>叙事风格</label>
+          <select value={params.style} onChange={e => setParam('style', e.target.value)} style={inputStyle}>
+            {['爽文', '轻喜', '正剧', '虐恋', '悬疑烧脑', '热血励志', '甜宠'].map(s => <option key={s}>{s}</option>)}
+          </select>
+        </div>
+
+        {/* 总集数 */}
+        <div>
+          <label style={{ fontSize: 12, color: T.textMuted, display: 'block', marginBottom: 5 }}>总集数</label>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+            {[10, 20, 30, 60, 80, 100].map(n => (
+              <button key={n} onClick={() => setParam('episodes', n)}
+                style={{
+                  padding: '4px 10px', borderRadius: 5, fontSize: 12, cursor: 'pointer', border: `1px solid ${T.border}`,
+                  background: params.episodes === n ? T.btnBg : T.nodeSubtle,
+                  color: params.episodes === n ? T.btnText : T.textSub,
+                }}>{n}集</button>
+            ))}
+          </div>
+          <input type="number" min={1} max={200} value={params.episodes}
+            onChange={e => setParam('episodes', Number(e.target.value))}
+            style={inputStyle} placeholder="自定义集数" />
+        </div>
+
+        {/* 每集时长 */}
+        <div>
+          <label style={{ fontSize: 12, color: T.textMuted, display: 'block', marginBottom: 5 }}>每集时长</label>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {[{ label: '1分钟', value: '1' }, { label: '3分钟', value: '3' }, { label: '5分钟', value: '5' }].map(d => (
+              <button key={d.value} onClick={() => setParam('duration', d.value)}
+                style={{
+                  flex: 1, padding: '7px 0', borderRadius: 7, fontSize: 12, cursor: 'pointer', border: `1px solid ${T.border}`,
+                  background: params.duration === d.value ? T.btnBg : T.nodeSubtle,
+                  color: params.duration === d.value ? T.btnText : T.textSub,
+                }}>{d.label}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* 主角设定 */}
+        <div style={{ gridColumn: 'span 2' }}>
+          <label style={{ fontSize: 12, color: T.textMuted, display: 'block', marginBottom: 5 }}>主角设定</label>
+          <input type="text" value={params.protagonist} onChange={e => setParam('protagonist', e.target.value)}
+            placeholder="例：28岁女律师，精英外表、内心脆弱，被前男友陷害入狱后重生复仇"
+            style={inputStyle} />
+        </div>
+
+        {/* 题材/主题 */}
+        <div style={{ gridColumn: 'span 2' }}>
+          <label style={{ fontSize: 12, color: T.textMuted, display: 'block', marginBottom: 5 }}>题材 / 核心冲突</label>
+          <input type="text" value={params.theme} onChange={e => setParam('theme', e.target.value)}
+            placeholder="例：职场霸凌与重生复仇、豪门恩怨与身份揭秘、甜宠校园与隐婚秘密"
+            style={inputStyle} />
+        </div>
+
+        {/* 特殊要求 */}
+        <div style={{ gridColumn: 'span 2' }}>
+          <label style={{ fontSize: 12, color: T.textMuted, display: 'block', marginBottom: 5 }}>特殊要求（可选）</label>
+          <textarea value={params.requirements} onChange={e => setParam('requirements', e.target.value)}
+            rows={3} placeholder="例：第一集必须以主角被陷害的场景开场；反派必须有合理的动机；结局要HE"
+            style={{ ...inputStyle, resize: 'none', lineHeight: 1.6 }} />
+        </div>
+      </div>
+
+      {hasBible && (
+        <div style={{ marginTop: 16, padding: '10px 14px', background: 'rgba(201,152,42,0.08)', border: '1px solid rgba(201,152,42,0.2)', borderRadius: 8, fontSize: 12, color: T.accent }}>
+          ⚠️ 已有故事圣经。修改配置后重新生成将覆盖现有内容。
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Markdown 内容查看器 ──────────────────────────────────────
+function MarkdownView({ text, T, streaming }: { text: string; T: any; streaming: boolean }) {
+  if (!text) return (
+    <div style={{ textAlign: 'center', paddingTop: 80, color: T.textMuted }}>
+      <div style={{ fontSize: 32, marginBottom: 12 }}>📄</div>
+      <div style={{ fontSize: 13 }}>内容将在生成后显示在此处</div>
+    </div>
+  )
+  return (
+    <div style={{ fontSize: 13, lineHeight: 1.9, color: T.text, maxWidth: 720 }}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+      {streaming && <span style={{ color: T.accent }}>▌</span>}
+    </div>
+  )
+}
+
+// ── 单集内容查看/编辑器 ──────────────────────────────────────
+function EpisodeContentView({ index, content, streaming, T, onChange }: {
+  index: number; content: string; streaming: boolean; T: any; onChange: (c: string) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  if (!content && !streaming) return (
+    <div style={{ textAlign: 'center', paddingTop: 80, color: T.textMuted }}>
+      <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
+      <div style={{ fontSize: 13 }}>第 {index + 1} 集尚未生成</div>
+    </div>
+  )
+  if (editing) return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+        <button onClick={() => setEditing(false)} style={{ fontSize: 12, padding: '4px 12px', borderRadius: 6, background: T.btnBg, color: T.btnText, border: 'none', cursor: 'pointer' }}>
+          完成编辑
+        </button>
+      </div>
+      <textarea
+        value={content}
+        onChange={e => onChange(e.target.value)}
+        style={{ flex: 1, padding: 16, border: `1px solid ${T.border}`, borderRadius: 8, background: T.inputBg, color: T.text, fontSize: 13, lineHeight: 1.8, resize: 'none', outline: 'none' }}
+      />
+    </div>
+  )
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        {!streaming && (
+          <button onClick={() => setEditing(true)} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 5, background: T.nodeSubtle, border: `1px solid ${T.border}`, color: T.textSub, cursor: 'pointer' }}>
+            ✏️ 编辑
+          </button>
+        )}
+      </div>
+      <div style={{ fontSize: 13, lineHeight: 1.9, color: T.text, whiteSpace: 'pre-wrap', fontFamily: '"PingFang SC", "Microsoft YaHei", sans-serif' }}>
+        {content}
+        {streaming && <span style={{ color: T.accent }}>▌</span>}
+      </div>
+    </div>
+  )
+}
+
+// ── 底部操作栏 ───────────────────────────────────────────────
+function ActionBar({ phase, busy, paused, hasBible, hasMap, doneCount, totalEps, allDone,
+  onGenerateBible, onGenerateMap, onStartEpisodes, onPause, onResume, onSwitchToCanvas, onExtractAssets, T
+}: {
+  phase: number; busy: boolean; paused: boolean; hasBible: boolean; hasMap: boolean
+  doneCount: number; totalEps: number; allDone: boolean
+  onGenerateBible: () => void; onGenerateMap: () => void
+  onStartEpisodes: () => void; onPause: () => void; onResume: () => void
+  onSwitchToCanvas: () => void; onExtractAssets: () => void; T: any
+}) {
+  const btn = (label: string, onClick: () => void, primary = false, disabled = false): React.ReactNode => (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        padding: '9px 20px', borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer',
+        background: disabled ? T.nodeSubtle : primary ? T.btnBg : T.nodeSubtle,
+        color: disabled ? T.textMuted : primary ? T.btnText : T.textSub,
+        border: `1px solid ${disabled ? T.border : primary ? 'transparent' : T.border}`,
+        opacity: disabled ? 0.5 : 1,
+        transition: 'all 0.15s',
+      }}
+    >{label}</button>
+  )
+
+  return (
+    <div style={{
+      flexShrink: 0, display: 'flex', alignItems: 'center', gap: 10,
+      padding: '12px 24px', borderTop: `1px solid ${T.border}`, background: T.headerBg,
+    }}>
+      {/* Step 1 */}
+      {btn(hasBible ? '↺ 重新生成故事圣经' : '① 生成故事圣经', onGenerateBible, !hasBible, busy)}
+
+      {/* Step 2 */}
+      {hasBible && btn(hasMap ? '↺ 重新生成集数大纲' : '② 生成集数大纲', onGenerateMap, !hasMap, busy)}
+
+      {/* Step 3 */}
+      {hasMap && !allDone && !busy && !paused && (
+        btn(doneCount > 0 ? `③ 继续生成（${doneCount}/${totalEps}）` : '③ 开始逐集生成', onStartEpisodes, true, busy)
+      )}
+      {hasMap && busy && (
+        <button onClick={onPause} style={{ padding: '9px 20px', borderRadius: 7, fontSize: 13, fontWeight: 600, border: '1px solid rgba(239,68,68,0.4)', cursor: 'pointer', background: 'rgba(239,68,68,0.08)', color: 'rgba(239,68,68,0.9)' }}>
+          ⏸ 暂停
+        </button>
+      )}
+      {paused && btn('▶ 继续生成', onResume, true)}
+
+      <div style={{ flex: 1 }} />
+
+      {/* 完成后的选项 */}
+      {allDone && (
+        <>
+          {btn('→ 进入生图模块', onSwitchToCanvas, true)}
+        </>
+      )}
+      {hasBible && (
+        <div style={{ fontSize: 11, color: T.textMuted }}>
+          {doneCount > 0 ? `${doneCount}/${totalEps} 集` : ''}
+        </div>
+      )}
     </div>
   )
 }

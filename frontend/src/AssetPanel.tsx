@@ -7,15 +7,8 @@ function authHeaders(): Record<string, string> {
   return token ? { 'Authorization': `Bearer ${token}` } : {}
 }
 
-// ── 类型 ─────────────────────────────────────────────────────
-export interface AssetItem {
-  id: string
-  type: 'CHARACTER' | 'SCENE' | 'PROP'
-  name: string
-  desc: string
-  prompt: string
-  selected: boolean
-}
+export type { AssetItem } from './types/asset'
+import type { AssetItem } from './types/asset'
 
 type AssetMode  = 'simple' | 'detailed'
 type AssetStyle = '2D' | '3D' | '仿真人' | 'custom'
@@ -27,6 +20,7 @@ interface Props {
   projectId: string                              // 当前项目 ID，直接发送到此项目
   assets: AssetItem[]                            // 由父组件持有，用于保存
   onAssetsChange: (assets: AssetItem[]) => void  // 更新父组件
+  autoGenerate?: boolean                         // 切到资产 Tab 时自动触发生成
 }
 
 // ── 解析 Agent 输出 ───────────────────────────────────────────
@@ -62,7 +56,7 @@ const TYPE_LABEL: Record<AssetItem['type'], string> = {
 }
 
 // ── 组件 ─────────────────────────────────────────────────────
-export default function AssetPanel({ promptTexts, script, projectId, assets, onAssetsChange }: Props) {
+export default function AssetPanel({ promptTexts, script, projectId, assets, onAssetsChange, autoGenerate }: Props) {
   const { T } = useTheme()
 
   const [mode,       setMode]       = useState<AssetMode>('simple')
@@ -85,7 +79,41 @@ export default function AssetPanel({ promptTexts, script, projectId, assets, onA
   // 发送到画布相关
   const [sendStatus, setSendStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
 
-  const streamRef = useRef('')
+  const streamRef   = useRef('')
+  const autoTriggered = useRef(false)
+
+  // auto-trigger when parent switches to asset tab with prompts ready
+  useEffect(() => {
+    if (autoGenerate && promptTexts.length > 0 && phase === 'idle' && !autoTriggered.current) {
+      autoTriggered.current = true
+      generate()
+    }
+  }) // runs every render; guarded by autoTriggered ref
+
+  // ── DB 持久化（生成完成后，fire-and-forget）────────────────────
+  const persistAssetsToDB = useCallback(async (items: AssetItem[]) => {
+    for (const item of items) {
+      if (item.dbId) continue  // already saved
+      try {
+        const res = await fetch('/api/assets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body: JSON.stringify({
+            projectId,
+            type: item.type,
+            name: item.name,
+            description: item.desc,
+            prompt: item.prompt,
+            tags: [],
+          }),
+        })
+        if (res.ok) {
+          const saved = await res.json()
+          onAssetsChange(assets.map(a => a.id === item.id ? { ...a, dbId: saved.id } : a))
+        }
+      } catch { /* non-critical, local state still valid */ }
+    }
+  }, [projectId, assets, onAssetsChange])
 
   // ── 流式请求 ────────────────────────────────────────────────
   const generate = useCallback(async () => {
@@ -125,6 +153,7 @@ export default function AssetPanel({ promptTexts, script, projectId, assets, onA
             const parsed = parseAssets(streamRef.current)
             setAssets(parsed)
             setPhase('ready')
+            persistAssetsToDB(parsed)
             return
           }
           try {
@@ -137,10 +166,11 @@ export default function AssetPanel({ promptTexts, script, projectId, assets, onA
       const parsed = parseAssets(streamRef.current)
       setAssets(parsed)
       setPhase('ready')
+      persistAssetsToDB(parsed)
     } catch {
       setPhase('idle')
     }
-  }, [promptTexts, mode, style, customStyle, phase])
+  }, [promptTexts, mode, style, customStyle, phase, persistAssetsToDB])
 
   // ── 全选 / 取消 ────────────────────────────────────────────
   const toggleAll   = (type?: AssetItem['type']) => {

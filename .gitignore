@@ -11,6 +11,14 @@ backend/.env
 backend/generated/
 backend/projects/
 backend/uploads/
+backend/pipeline-output/
+
+# Database (contains all user data — never commit)
+backend/data/
+
+# Legacy flat-file storage (migrated to SQLite, but may still exist locally)
+backend/users.json
+backend/generated/metadata.json
 
 # Build output
 frontend/dist/
