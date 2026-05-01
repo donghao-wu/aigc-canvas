@@ -370,12 +370,102 @@ server {
 
 ---
 
+## 上线前安全检查清单
+
+**每次发布前必须执行，不得跳过。**
+
+### 1. 密钥泄漏扫描
+
+```bash
+# 扫描代码中的硬编码密钥（排除正常变量引用）
+grep -rn "sk-\|api_key\|secret\|password" \
+  --include="*.js" --include="*.ts" --include="*.tsx" \
+  --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.git \
+  --exclude="package-lock.json" \
+  | grep -v "process\.env\|localStorage\|\.example\|changeme\|your-\|bcrypt\|hash\|Bearer"
+```
+
+预期：只出现正常的变量引用，无真实密钥值。
+
+### 2. .env 未入 git
+
+```bash
+git ls-files | grep "\.env$"
+```
+
+预期：**无输出**。如有输出立即执行：
+```bash
+git rm --cached backend/.env && echo "backend/.env" >> .gitignore
+```
+
+### 3. git 历史中无密钥
+
+```bash
+git log --all --full-history -- "**/.env" ".env" "backend/.env"
+```
+
+预期：**无输出**。如历史中曾提交过需使用 `git filter-repo` 清除并强制推送。
+
+### 4. 所有 API 路由有认证
+
+```bash
+# 检查无 authMiddleware 的路由（/health 和 /api/auth/* 例外）
+grep -n "app\.\(get\|post\|put\|delete\)" backend/index.js | grep -v "authMiddleware\|health\|/api/auth\|/api/admin"
+```
+
+预期：只有 `/health`（健康检查）不需要认证，其余均需有 `authMiddleware`。
+
+### 5. 前端 build 无密钥
+
+```bash
+cd frontend && npm run build
+grep -r "sk-\|DASHSCOPE\|JWT_SECRET\|ADMIN_SECRET" dist/
+```
+
+预期：**无输出**。所有密钥应只在后端 `.env` 中，前端绝不接触。
+
+### 6. 管理接口鉴权
+
+```bash
+# 测试未带 admin secret 时是否拒绝
+curl -s -X GET http://localhost:3001/api/admin/users | python3 -m json.tool
+```
+
+预期：返回 `{"error": "无权限"}`。
+
+### 7. CORS 生产配置
+
+确认 `.env` 中已设置 `ALLOWED_ORIGINS`，格式：
+```
+ALLOWED_ORIGINS=https://your-domain.com,https://www.your-domain.com
+```
+
+未设置时仅允许 `localhost:5173`（开发环境），生产环境**必须**显式配置。
+
+---
+
+### 已知安全设计
+
+| 机制 | 实现 |
+|------|------|
+| 密码存储 | bcrypt（salt rounds=10）|
+| JWT | 30天有效期，`Authorization: Bearer` 头 |
+| SQL 注入 | better-sqlite3 参数化查询，无字符串拼接 |
+| 路径穿越 | `validateId()` 白名单正则 + `path.startsWith()` 双重校验 |
+| 文件类型 | multer MIME 白名单（jpeg/png/webp/gif）|
+| 用户隔离 | 每个用户独立项目目录，`userId` 来自 JWT 解码 |
+| Body 大小 | 限制 10mb，防超大 payload 打爆内存 |
+| 密钥日志 | 启动日志仅打印 key 前缀（`sk-xxxxxxx...`）|
+
+---
+
 ## 开发规范
 
 ### 每次改动后必须
 
 1. 更新 `README.md` 中对应的功能描述/API 文档
-2. 提交并推送：`git add . && git commit -m "feat/fix: ..." && git push`
+2. 执行上方安全检查清单（至少 1、2、4、5 项）
+3. 提交并推送：`git add . && git commit -m "feat/fix: ..." && git push`
 
 ### Commit 格式
 
@@ -401,7 +491,11 @@ chore: 依赖/配置更新
 
 ## Changelog
 
-### v0.4.0（当前）— 2026-04-28
+### v0.4.1（当前）— 2026-04-28
+- **安全加固**：body limit 从 50mb 降至 10mb；`/api/models` 加 authMiddleware
+- **README**：新增完整安全检查清单（上线前必须执行的 7 项检查）
+
+### v0.4.0 — 2026-04-28
 - **剧本模块重构**：四步 Pipeline（故事圣经 → 集数大纲 → 逐集生成 → AI审稿），支持 60 集以上
 - **数据层**：SQLite 替换 JSON 文件存储（WAL 模式，并发安全）
 - **存储抽象**：local/OSS 可切换，`STORAGE_DRIVER` 环境变量控制

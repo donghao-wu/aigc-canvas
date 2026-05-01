@@ -26,7 +26,8 @@ app.use(cors({
   },
   credentials: true,
 }));
-app.use(express.json({ limit: '50mb' }));
+// JSON body limit: 10mb covers 60-episode scripts; 50mb was unnecessary attack surface
+app.use(express.json({ limit: '10mb' }));
 
 // ── 工具 ──────────────────────────────────────────────────────
 function validateId(id) {
@@ -334,7 +335,7 @@ app.get('/api/video-proxy/:taskId', authMiddleware, async (req, res) => {
 });
 
 // GET /api/models
-app.get('/api/models', (req, res) => {
+app.get('/api/models', authMiddleware, (req, res) => {
   res.json({
     image: [
       { id: 'wanx2.1-t2i-turbo', name: 'Wanx 2.1 Turbo', desc: '速度快' },
