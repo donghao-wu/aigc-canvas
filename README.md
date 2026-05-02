@@ -112,7 +112,6 @@ aigc-canvas/
 │   ├── index.js                 # Express 入口，核心路由
 │   ├── db.js                    # SQLite 数据层（用户/图片/资产）
 │   ├── storage.js               # 存储抽象层（local/OSS 切换）
-│   ├── script-agent-prompt.txt  # 剧本 Agent 系统 prompt（fallback）
 │   ├── routes/
 │   │   ├── auth.js              # 登录 / 用户管理
 │   │   ├── gallery.js           # 图片库
@@ -171,12 +170,6 @@ aigc-canvas/
 - 支持暂停 / 恢复，每 5 集自动保存
 - 每集可手动编辑
 
-**AI 审稿**
-六维评分（钩子/节奏/人物/对白/爽点/商业）+ 问题清单 + 带原文对比的修改建议。
-
-**资产提取**
-从剧本自动识别角色（含人物小传和外貌描述）、场景、道具，输出结构化 JSON，可一键发送到生图模块。
-
 ---
 
 ### 生图模块（ReactFlow 画布）
@@ -222,11 +215,12 @@ PUT    /api/projects/:id/script  # 保存剧本数据
 ### AI 生成
 
 ```
-POST /api/generate            # 文生图（Wanx）
+POST /api/generate-image      # 文生图（Wanx）
 POST /api/generate-video      # 文生视频（WAN）
-POST /api/analyze-prompt      # 图片提示词分析
+GET  /api/video-status        # 视频任务状态轮询
+GET  /api/video-proxy/:taskId # 视频流代理
+POST /api/analyze-image       # 图片影像分析（Qwen-VL）
 POST /api/script-agent        # 剧本 Agent（SSE 流式）
-POST /api/asset-agent         # 资产提示词生成（SSE 流式）
 ```
 
 **script-agent mode 参数：**
@@ -237,9 +231,6 @@ POST /api/asset-agent         # 资产提示词生成（SSE 流式）
 | `episode_map` | 生成集数大纲 | qwen-max |
 | `write_episode` | 生成单集剧本 | qwen-max |
 | `summarize_episode` | 生成集数摘要 | qwen-turbo |
-| `review` | AI 审稿 | qwen-max |
-| `extract_assets` | 提取视觉资产 | qwen-max |
-| `generate` | 一键生成（旧模式） | qwen-max |
 
 ### 资产
 
@@ -491,7 +482,12 @@ chore: 依赖/配置更新
 
 ## Changelog
 
-### v0.4.1（当前）— 2026-04-28
+### v0.4.2（当前）— 2026-05-01
+- **死代码清理**：删除 `PipelinePage.tsx`（745 行，已下线模块）；后端移除 7 个失效 mode 处理器（`generate`/`review`/`extract_assets`/`analyze`/`outline`/`prompts`/`chat`）、`/api/asset-agent` 路由、`/api/pipeline/save-manifest` 路由及相关常量（`STYLE_PREFIXES`/`buildAssetSystemPrompt`/`AGENT_MODEL_FAST`/`AGENT_PROMPT`/`PIPELINE_OUTPUT_DIR`）
+- **script-agent 精简**：后端仅保留 4 个活跃 mode（`story_bible`/`episode_map`/`write_episode`/`summarize_episode`），未知 mode 返回 400
+- **README 同步**：API 文档、项目结构、Changelog 均已更新
+
+### v0.4.1 — 2026-04-28
 - **安全加固**：body limit 从 50mb 降至 10mb；`/api/models` 加 authMiddleware
 - **README**：新增完整安全检查清单（上线前必须执行的 7 项检查）
 

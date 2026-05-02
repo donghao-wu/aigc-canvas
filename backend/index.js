@@ -429,13 +429,9 @@ app.delete('/api/projects/:id', authMiddleware, (req, res) => {
 });
 
 // ── 剧本 Agent ────────────────────────────────────────────────
-// generate/review/extract_assets 用最强模型；outline/prompts 等旧模式保持 plus
-const AGENT_MODEL        = 'qwen-max';   // 剧本创作主力
-const AGENT_MODEL_FAST   = 'qwen-plus';  // 旧模式兼容
-const AGENT_PROMPT = fs.readFileSync(path.join(__dirname, 'script-agent-prompt.txt'), 'utf8');
+const AGENT_MODEL = 'qwen-max';   // 剧本创作主力（qwen-turbo 用于摘要）
 
-// ── 新模式独立 system prompt ──────────────────────────────────
-// ── Pipeline 模式 Prompts ──────────────────────────────────────
+// ── 剧本创作 system prompts ───────────────────────────────────
 const STORY_BIBLE_PROMPT = `你是专业的短剧故事架构师，负责创作"故事圣经"（Story Bible）。
 故事圣经是整部剧的创作宪法，所有集数的编写都必须严格遵守这份文档。
 
@@ -533,97 +529,11 @@ const SUMMARIZE_PROMPT = `请用3句话概括以下剧本集数，要求：
 第3句：结尾状态（这集结束时各主要角色处于什么状态/位置）
 只输出3句话，不要标题，不要序号。`;
 
-const GENERATE_PROMPT = `你是专业的短剧剧本创作者，深谙抖音、快手平台的爆款短剧规律。
-
-## 核心创作原则
-- **钩子第一**：每集第一个场景必须有强冲突、反转或悬念，不允许平铺直叙开场
-- **节奏铁律**：开场钩子(0-15秒) → 情境建立(15-40秒) → 冲突推进 → 情绪爆发 → 结尾悬念/爽点
-- **对白口语化**：台词要短、狠、有个性；单次对话不超过3个来回；多用动作打断节奏
-- **每集必须有爽点**：情绪释放、逆袭、反转、狗血——让观众不吐不快地刷下一集
-- **结尾必留钩子**：不能有"圆满结局"，每集结尾都要让观众产生"接下来怎样"的强烈欲望
-
-## 输出格式（严格遵守）
----
-**《剧名》**
-类型 | 风格 | 集数
-
-**人物表**
-- 角色名（身份）：一句话性格标签
-
----
-**第X集：集名**
-【场景：地点 · 时间】
-（动作/环境描写，简洁有力）
-人物名：「台词」
-（动作/反应描写）
-...
-
----
-
-用中文创作，场景描述控制在3-5行，不要写成小说，要可以直接拍摄。`;
-
-const REVIEW_PROMPT = `你是资深短剧制片人兼剧本编辑，在抖音/快手平台有丰富的爆款操盘经验。你的审稿风格：直接、具体、可操作，不说废话。
-
-## 审稿六维度
-
-1. **钩子强度**（满分20分）：第一集第一个场景能否让陌生观众停下滑动？
-2. **节奏密度**（满分20分）：每集冲突频率、情绪起伏、悬念密度是否达标？
-3. **人物张力**（满分15分）：主角有没有让人爱/恨/心疼的理由？反派够不够坏？
-4. **对白质量**（满分15分）：台词口不口语？有没有"台词病"（说教/解释性台词）？
-5. **爽点设计**（满分20分）：每集有没有"啊！"的情绪释放瞬间？
-6. **商业评估**（满分10分）：题材赛道、受众清晰度、投流潜力
-
-## 输出格式（严格遵守）
-
-## 综合评分：X/100
-
-## 一句话判断
-[这本剧本能不能投？为什么？]
-
-## 亮点（引用原文）
-- 「原文片段」→ 好在哪里
-
-## 问题清单
-| 问题 | 严重程度 | 影响 |
-|------|----------|------|
-| 问题描述 | 🔴高/🟡中/🟢低 | 具体影响 |
-
-## 修改建议（附示例）
-### 问题1：[问题名]
-**原文：** 「...」
-**建议改为：** 「...」
-**理由：** ...
-
-## 优先行动
-1. [最重要的修改，一句话说清楚]
-2. [第二重要的修改]`;
-
-const EXTRACT_ASSETS_PROMPT = `你是影视制片的视觉资产总监，任务是从剧本中提取完整的视觉资产表，供AI生图工具直接使用。
-
-## 提取标准
-
-**角色（CHARACTER）**
-- 所有有名字、有台词或有特写的人物
-- 外貌描述必须足够具体，能让AI生成一致的参考图：年龄范围、性别、发型发色、面部特征、体型、标志性服装和配饰
-
-**场景（SCENE）**
-- 所有出现的独立地点（即使是同一建筑的不同区域也分开）
-- 描述要可视化：时间段（白天/夜晚/黄昏）、光线、主要视觉元素、空间感
-
-**道具（PROP）**
-- 只提取对剧情有作用的道具（推动情节、有特写、或对人物有象征意义的）
-- 忽略普通背景道具
-
-## 输出要求
-
-只输出JSON，不要任何前言、解释或markdown代码块。格式：
-{"characters":[{"name":"角色名","role":"主角/配角/反派/路人","bio":"人物小传：身份、性格、核心动机（2-4句话）","appearance":"外貌：年龄、性别、发型、发色、面部特征、体型、服装颜色款式、配饰（要详细到可以直接用于生图提示词）"}],"scenes":[{"name":"场景名","description":"详细的视觉描述：地点、时间段、光线、主要视觉元素","atmosphere":"情绪基调，如：冷酷都市/温暖居家/压抑阴暗/繁华商业"}],"props":[{"name":"道具名","description":"外观描述：形状、颜色、材质、尺寸，以及在剧中的作用"}]}`;
-
 app.post('/api/script-agent', authMiddleware, async (req, res) => {
-  const { mode, script = '', shots = [], history = [] } = req.body;
+  const { mode, history = [] } = req.body;
 
   let userContent = '';
-  let systemContent = AGENT_PROMPT;
+  let systemContent = '';
 
   if (mode === 'story_bible') {
     const { genre = '都市', theme = '', episodes = 60, duration = '3', protagonist = '', style = '爽文', requirements = '' } = req.body;
@@ -680,76 +590,8 @@ ${episodeMapText.slice(0, 1500)}
     systemContent = SUMMARIZE_PROMPT;
     userContent = `第${episodeIndex + 1}集剧本：\n\n${episodeContent.slice(0, 3000)}`;
 
-  } else if (mode === 'generate') {
-    const { genre = '都市', theme = '', episodes = 10, duration = '3', protagonist = '', style = '爽文', requirements = '' } = req.body;
-    const durationNum = parseInt(String(duration), 10) || 3;
-    // 每分钟约300-350字对白+场景描述
-    const wordsPerEp = durationNum * 320;
-    systemContent = GENERATE_PROMPT;
-    userContent = `请创作一部完整的短剧剧本，要求如下：
-
-类型：${genre}
-题材/主题：${theme || '根据类型自行设定'}
-集数：${episodes}集
-每集时长：约${durationNum}分钟（每集约${wordsPerEp}字）
-主角设定：${protagonist || '根据题材自行设计，要有鲜明性格标签'}
-风格：${style}
-特殊要求：${requirements || '无'}
-
-请从第1集开始，严格按格式完整输出所有${episodes}集剧本。每集开头必须有强钩子，结尾必须留悬念。`;
-
-  } else if (mode === 'review') {
-    systemContent = REVIEW_PROMPT;
-    userContent = `请对以下短剧剧本进行专业审稿：\n\n${script}`;
-
-  } else if (mode === 'extract_assets') {
-    systemContent = EXTRACT_ASSETS_PROMPT;
-    userContent = `请从以下剧本中提取完整的视觉资产表，严格按JSON格式输出：\n\n${script}`;
-
-  } else if (mode === 'analyze') {
-    userContent = `【模式A · 剧本分析】请分析以下剧本的节奏结构和问题：\n\n${script}`;
-  } else if (mode === 'outline') {
-    const minShots = Math.max(30, Math.ceil(script.length / 35));
-    userContent = `【模式B · 分镜大纲】请为以下剧本生成完整的分镜大纲，总镜头数不少于 ${minShots} 个。
-
-每个镜头一行，格式固定为四个字段：
-镜头 XX | 地点 | 景别 | 角度/运动 — 叙事作用
-
-说明：
-- 第二字段是地点（2-5个字，如：院子、室内、走廊、窗边）
-- 同一场景内多个镜头地点字段填相同文字
-- 每个对话/情绪场景至少6-8个镜头（正打+反打+关系镜头+反应特写）
-- 不要在镜头行下面加"画面："或"叙事目的："等额外说明
-
-示例：
-镜头 01 | 院子 | ELS | 俯视·固定 — 建立深夜院子全景
-镜头 02 | 院子 | LS | 平视·固定 — 王三走进院子
-镜头 03 | 院子 | MCU | 正面·静止 — 王三皱眉说话
-镜头 04 | 院子 | ECU | 平视·极缓慢推进 — 王三表情特写
-镜头 05 | 院子 | MCU | 仰视·静止 — 婆婆探头
-镜头 06 | 室内 | MS | 正面·固定 — 王三走进屋
-
-镜头编号全剧连续，输出完整大纲后等待我确认，不要提前生成提示词。
-
-剧本内容：
-${script}`;
-  } else if (mode === 'prompts') {
-    const shotLines = shots.map(s => s.isGroup ? `\n场景：${s.header}` : s.header + (s.details ? '\n' + s.details : '')).join('\n');
-    userContent = `【模式B · 完整分镜】已确认的分镜大纲如下，请为每个镜头生成完整的 Seedance 提示词。
-
-重要要求：
-- 台词/旁白字段必须填写剧本原文台词，禁止写「无」（除非该镜头真的无台词）
-- 台词必须完整引用，不得缩写或省略
-- 严格按 B6 模板格式逐条输出
-
-已确认大纲：
-${shotLines}
-
-原始剧本参考：
-${script}`;
-  } else if (mode === 'chat') {
-    userContent = req.body.message || '';
-    systemContent = AGENT_PROMPT + '\n\n## 对话模式限制\n在对话中不要直接输出完整的分镜大纲或 Seedance 提示词内容。当用户确认修改完成、希望生成大纲或提示词时，请明确告知：「请点击左侧「生成分镜大纲」按钮，在对话框中继续将无法生成可复制的卡片版本。」';
+  } else {
+    return res.status(400).json({ error: `未知 mode: ${mode}` });
   }
 
   const messages = [{ role: 'system', content: systemContent }, ...history, { role: 'user', content: userContent }];
@@ -763,17 +605,13 @@ ${script}`;
     const response = await axios.post(
       `${DS_CHAT_BASE}/chat/completions`,
       {
-        model: mode === 'summarize_episode' ? 'qwen-turbo'
-             : ['generate', 'review', 'extract_assets', 'story_bible', 'episode_map', 'write_episode'].includes(mode) ? AGENT_MODEL
-             : AGENT_MODEL_FAST,
+        model: mode === 'summarize_episode' ? 'qwen-turbo' : AGENT_MODEL,
         messages,
         stream: true,
         max_tokens: mode === 'write_episode'     ? 8192
                   : mode === 'story_bible'       ? 4096
                   : mode === 'episode_map'       ? 8192
-                  : mode === 'generate'          ? 16000
                   : mode === 'summarize_episode' ? 512
-                  : mode === 'extract_assets'    ? 4096
                   : 8192,
       },
       { headers: { Authorization: `Bearer ${DASHSCOPE_KEY}`, 'Content-Type': 'application/json' }, responseType: 'stream', timeout: 300000 }
@@ -819,144 +657,6 @@ app.put('/api/projects/:id/script', authMiddleware, (req, res) => {
   res.json({ ok: true });
 });
 
-// ── 资产 Agent ────────────────────────────────────────────────
-const STYLE_PREFIXES = {
-  '2D':   '2D animation style, flat illustration, clean linework, vector art',
-  '3D':   '3D CGI render, Unreal Engine 5, physically based rendering, cinematic lighting, ultra-detailed',
-  '仿真人': 'photorealistic, hyperrealistic, 8K photography, cinematic, ultra-detailed',
-};
-
-function buildAssetSystemPrompt(mode, stylePrefix) {
-  const assetTypes = mode === 'simple'
-    ? `简单模式：只提取以下两类\n- CHARACTER（角色）：出现的主要人物\n- SCENE（场景）：主要发生的地点环境`
-    : `详细模式：提取以下三类\n- CHARACTER（角色）：所有出现的人物\n- SCENE（场景）：所有独立的地点环境\n- PROP（道具）：重要的道具/物品`;
-
-  return `你是专业影视视觉资产分析师。你的任务分两步完成。
-
-## 第一步：精读剧本，提取角色形象
-在生成任何提示词之前，先从剧本原文中仔细提取每个角色的：
-- 年龄、性别、体型
-- 面部特征（肤色、发型、发色、五官）
-- 服装（颜色、款式、材质、配饰）
-- 气质与特征标签
-如果剧本中没有明确描述某个特征，根据剧本背景合理推断，但不要凭空捏造与剧情无关的特征。
-
-## 第二步：提取资产并生成提示词
-
-### 资产识别规则
-${assetTypes}
-
-### 去重规则（精确执行）
-- 只有名称完全相同或极度相似的资产才合并
-- 不同地点的同类场景视为不同资产
-- 不同外貌的同类人物视为不同角色
-
-### CHARACTER 提示词规则
-- 必须是：纯白色背景，单人全身三视图（正面、侧面、背面并排）
-- 固定结构：${stylePrefix}, character design sheet, full body three-view reference (front view, side view, back view), pure white background, [详细外观描述], no background, no scene, no props, no other characters, model sheet style
-
-### SCENE 提示词规则
-- 必须是：空镜，场景内无任何人物
-- 固定结构：${stylePrefix}, wide establishing shot, empty scene, no people, no characters, [详细场景环境描述], [光线与氛围], cinematic composition
-
-### PROP 提示词规则
-- 固定结构：${stylePrefix}, product shot, close-up, pure white background, [道具详细描述], no background, no people
-
-## 输出格式（严格遵守）
-所有 CHARACTER 先输出，再输出所有 SCENE，最后输出所有 PROP。
-
-===ASSET_START===
-TYPE: CHARACTER
-NAME: 人物中文名称
-DESC: 外观描述（中文，25字以内）
-PROMPT: ${stylePrefix}, character design sheet, full body three-view reference (front view, side view, back view), pure white background, [英文外观描述], no background, no scene, no props, model sheet style
-===ASSET_END===`;
-}
-
-app.post('/api/asset-agent', authMiddleware, async (req, res) => {
-  const { promptTexts = [], mode = 'simple', style = '3D', customStyle = '', script = '' } = req.body;
-  const stylePrefix  = style === 'custom' ? (customStyle || '3D CGI render') : (STYLE_PREFIXES[style] || STYLE_PREFIXES['3D']);
-  const systemPrompt = buildAssetSystemPrompt(mode, stylePrefix);
-  const scriptSection = script.trim() ? `## 原始剧本（用于第一步角色形象分析）\n${script.trim()}\n\n` : '';
-  const userContent   = `${scriptSection}## 分镜 Seedance 提示词（用于资产提取）\n\n${promptTexts.map((p, i) => `【镜头 ${i + 1}】\n${p}`).join('\n\n---\n\n')}`;
-  const messages      = [{ role: 'system', content: systemPrompt }, { role: 'user', content: userContent }];
-
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders();
-
-  try {
-    const response = await axios.post(
-      `${DS_CHAT_BASE}/chat/completions`,
-      { model: AGENT_MODEL, messages, stream: true, max_tokens: 4096 },
-      { headers: { Authorization: `Bearer ${DASHSCOPE_KEY}`, 'Content-Type': 'application/json' }, responseType: 'stream', timeout: 120000 }
-    );
-    let buf = '';
-    response.data.on('data', chunk => {
-      buf += chunk.toString();
-      const lines = buf.split('\n');
-      buf = lines.pop() ?? '';
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        const data = line.slice(6).trim();
-        if (data === '[DONE]') { res.write('data: [DONE]\n\n'); continue; }
-        try {
-          const parsed = JSON.parse(data);
-          const text   = parsed.choices?.[0]?.delta?.content;
-          if (text) res.write(`data: ${JSON.stringify({ text })}\n\n`);
-        } catch {}
-      }
-    });
-    response.data.on('end',   () => { res.write('data: [DONE]\n\n'); res.end(); });
-    response.data.on('error', err => { res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`); res.end(); });
-  } catch (err) {
-    res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
-    res.end();
-  }
-});
-
-// ── Pipeline 素材归档 ─────────────────────────────────────────
-const PIPELINE_OUTPUT_DIR = path.join(__dirname, 'pipeline-output');
-if (!fs.existsSync(PIPELINE_OUTPUT_DIR)) fs.mkdirSync(PIPELINE_OUTPUT_DIR, { recursive: true });
-
-app.post('/api/pipeline/save-manifest', authMiddleware, async (req, res) => {
-  try {
-    const { projectName = 'untitled', shots = [], assets = [], videos = [] } = req.body;
-    const safeName   = String(projectName).replace(/[^a-zA-Z0-9_一-鿿-]/g, '_').slice(0, 40);
-    const folderName = `${Date.now()}-${safeName}`;
-    const outDir     = path.join(PIPELINE_OUTPUT_DIR, folderName);
-    fs.mkdirSync(outDir, { recursive: true });
-
-    const assetsWithFiles = assets.map(a => {
-      let file = null;
-      if (a.savedId) {
-        const img = db.findImage(a.savedId);
-        if (img) {
-          const src  = path.join(GENERATED_DIR, img.filename);
-          const dest = path.join(outDir, img.filename);
-          if (fs.existsSync(src)) { fs.copyFileSync(src, dest); file = img.filename; }
-        }
-      }
-      return { type: a.type, name: a.name, prompt: a.prompt, file };
-    });
-
-    const manifest = {
-      projectName,
-      createdAt:  new Date().toISOString(),
-      totalShots: shots.length,
-      shots,
-      assets:  assetsWithFiles,
-      videos:  videos.map(v => ({ shotId: v.shotId, prompt: v.prompt, taskId: v.taskId || null, status: v.status, videoUrl: v.videoUrl || null })),
-    };
-
-    fs.writeFileSync(path.join(outDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
-    console.log(`[Pipeline] 归档完成: ${folderName}`);
-    res.json({ ok: true, folder: folderName, path: `pipeline-output/${folderName}/manifest.json` });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // ── 健康检查 ──────────────────────────────────────────────────
 app.get('/health', (req, res) => {
