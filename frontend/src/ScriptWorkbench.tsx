@@ -39,12 +39,13 @@ interface EpisodeDraft {
 interface ScriptData {
   params: GenerateParams | null
   storyBible: string
+  characterBios: string
   episodeMapText: string
   episodeMap: EpisodeOutline[]
   episodes: EpisodeDraft[]
 }
 
-type SelectedItem = 'params' | 'bible' | 'map' | number
+type SelectedItem = 'params' | 'bible' | 'bios' | 'map' | number
 
 const GENRES  = ['都市', '古装', '悬疑', '甜宠', '逆袭', '职场', '家庭', '青春', '豪门', '其他']
 const STYLES  = ['爽文', '轻喜', '正剧', '虐恋', '悬疑烧脑', '热血励志', '甜宠']
@@ -61,7 +62,7 @@ const DEFAULT_PARAMS: GenerateParams = {
 }
 
 const EMPTY_DATA: ScriptData = {
-  params: null, storyBible: '', episodeMapText: '',
+  params: null, storyBible: '', characterBios: '', episodeMapText: '',
   episodeMap: [], episodes: [],
 }
 
@@ -169,6 +170,8 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
           if (saved.episodes?.length > 0) {
             const lastDone = saved.episodes.filter((e: EpisodeDraft) => e.status === 'done').length
             setSelected(lastDone > 0 ? lastDone - 1 : 'bible')
+          } else if (saved.characterBios) {
+            setSelected('bios')
           } else if (saved.storyBible) {
             setSelected('bible')
           }
@@ -196,6 +199,7 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
 
   // ── 阶段计算 ─────────────────────────────────────────────
   const hasBible    = !!data.storyBible
+  const hasBios     = !!data.characterBios
   const hasMap      = data.episodeMap.length > 0
   const doneCount   = data.episodes.filter(e => e.status === 'done').length
   const totalEps    = params.episodes
@@ -221,15 +225,35 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
     )
   }, [busy, params, updateData])
 
-  // ── Step 2: 生成集数大纲 ─────────────────────────────────
-  const handleGenerateMap = useCallback(() => {
+  // ── Step 2: 生成角色小传 ─────────────────────────────────
+  const handleGenerateBios = useCallback(() => {
     if (busy || !hasBible) return
+    setBusy(true); setError(''); setStreamBuf(''); setSelected('bios')
+    abortRef.current = new AbortController()
+
+    let full = ''
+    streamSSE(
+      { mode: 'character_bios', storyBible: data.storyBible },
+      chunk => { full += chunk; setStreamBuf(full) },
+      fullText => {
+        updateData({ characterBios: fullText }, true)
+        setStreamBuf('')
+        setBusy(false)
+      },
+      msg => { setError(msg); setBusy(false); setStreamBuf('') },
+      abortRef.current.signal,
+    )
+  }, [busy, hasBible, data.storyBible, updateData])
+
+  // ── Step 3: 生成集数大纲 ─────────────────────────────────
+  const handleGenerateMap = useCallback(() => {
+    if (busy || !hasBible || !hasBios) return
     setBusy(true); setError(''); setStreamBuf(''); setSelected('map')
     abortRef.current = new AbortController()
 
     let full = ''
     streamSSE(
-      { mode: 'episode_map', storyBible: data.storyBible, episodes: params.episodes },
+      { mode: 'episode_map', storyBible: data.storyBible, characterBios: data.characterBios, episodes: params.episodes },
       chunk => { full += chunk; setStreamBuf(full) },
       fullText => {
         const map = parseEpisodeMap(fullText)
@@ -243,7 +267,7 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
       msg => { setError(msg); setBusy(false); setStreamBuf('') },
       abortRef.current.signal,
     )
-  }, [busy, hasBible, data.storyBible, params.episodes, updateData])
+  }, [busy, hasBible, hasBios, data.storyBible, data.characterBios, params.episodes, updateData])
 
   // ── Step 3: 逐集生成循环 ─────────────────────────────────
   const generateEpisodesFrom = useCallback(async (startIndex: number) => {
@@ -286,6 +310,7 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
           {
             mode: 'write_episode',
             storyBible: d2.storyBible,
+            characterBios: d2.characterBios,
             episodeMapText: d2.episodeMapText.slice(0, 2000),
             episodeIndex: i,
             currentOutline,
@@ -393,6 +418,10 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
       const text = (busy && streamBuf && selected === 'bible') ? streamBuf : data.storyBible
       return <MarkdownView text={text} T={T} streaming={busy && selected === 'bible'} />
     }
+    if (selected === 'bios') {
+      const text = (busy && streamBuf && selected === 'bios') ? streamBuf : data.characterBios
+      return <MarkdownView text={text} T={T} streaming={busy && selected === 'bios'} />
+    }
     if (selected === 'map') {
       const text = (busy && streamBuf && selected === 'map') ? streamBuf : data.episodeMapText
       return <MarkdownView text={text} T={T} streaming={busy && selected === 'map'} />
@@ -418,8 +447,9 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
   // ── 阶段指示器状态 ────────────────────────────────────────
   const phase =
     !hasBible ? 1 :
-    !hasMap   ? 2 :
-    doneCount < totalEps ? 3 : 4
+    !hasBios  ? 2 :
+    !hasMap   ? 3 :
+    doneCount < totalEps ? 4 : 5
 
   // ── 渲染 ─────────────────────────────────────────────────
   return (
@@ -451,6 +481,7 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
               {typeof selected === 'number'
                 ? `生成第 ${selected + 1}/${totalEps} 集...`
                 : selected === 'bible' ? '生成故事圣经...'
+                : selected === 'bios'  ? '生成角色小传...'
                 : '生成集数大纲...'}
             </span>
           </div>
@@ -502,11 +533,13 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
             busy={busy}
             paused={paused}
             hasBible={hasBible}
+            hasBios={hasBios}
             hasMap={hasMap}
             doneCount={doneCount}
             totalEps={totalEps}
             allDone={allDone}
             onGenerateBible={handleGenerateBible}
+            onGenerateBios={handleGenerateBios}
             onGenerateMap={handleGenerateMap}
             onStartEpisodes={handleStartEpisodes}
             onPause={handlePause}
@@ -526,8 +559,9 @@ function PhaseBar({ phase, doneCount, totalEps, T }: { phase: number; doneCount:
   const steps = [
     { n: 1, label: '① 生成配置' },
     { n: 2, label: '② 故事圣经' },
-    { n: 3, label: '③ 集数大纲' },
-    { n: 4, label: `④ 逐集生成 ${doneCount}/${totalEps}` },
+    { n: 3, label: '③ 角色小传' },
+    { n: 4, label: '④ 集数大纲' },
+    { n: 5, label: `⑤ 逐集生成 ${doneCount}/${totalEps}` },
   ]
   return (
     <div style={{ display: 'flex', alignItems: 'center', padding: '8px 20px', borderBottom: `1px solid ${T.border}`, background: T.headerBg, flexShrink: 0, gap: 0 }}>
@@ -594,7 +628,8 @@ function EpisodeNav({ data, selected, busy, streaming, onSelect, T, theme }: {
         {[
           { key: 'params' as SelectedItem, icon: '⚙️', label: '生成配置' },
           { key: 'bible' as SelectedItem, icon: '📖', label: '故事圣经', has: !!data.storyBible },
-          { key: 'map' as SelectedItem, icon: '🗺', label: '集数大纲', has: data.episodeMap.length > 0 },
+          { key: 'bios'  as SelectedItem, icon: '👥', label: '角色小传', has: !!data.characterBios },
+          { key: 'map'   as SelectedItem, icon: '🗺', label: '集数大纲', has: data.episodeMap.length > 0 },
         ].map(item => (
           <button
             key={String(item.key)}
@@ -829,12 +864,12 @@ function EpisodeContentView({ index, content, streaming, T, onChange }: {
 }
 
 // ── 底部操作栏 ───────────────────────────────────────────────
-function ActionBar({ phase, busy, paused, hasBible, hasMap, doneCount, totalEps, allDone,
-  onGenerateBible, onGenerateMap, onStartEpisodes, onPause, onResume, onSwitchToCanvas, onExtractAssets, T
+function ActionBar({ phase, busy, paused, hasBible, hasBios, hasMap, doneCount, totalEps, allDone,
+  onGenerateBible, onGenerateBios, onGenerateMap, onStartEpisodes, onPause, onResume, onSwitchToCanvas, onExtractAssets, T
 }: {
-  phase: number; busy: boolean; paused: boolean; hasBible: boolean; hasMap: boolean
+  phase: number; busy: boolean; paused: boolean; hasBible: boolean; hasBios: boolean; hasMap: boolean
   doneCount: number; totalEps: number; allDone: boolean
-  onGenerateBible: () => void; onGenerateMap: () => void
+  onGenerateBible: () => void; onGenerateBios: () => void; onGenerateMap: () => void
   onStartEpisodes: () => void; onPause: () => void; onResume: () => void
   onSwitchToCanvas: () => void; onExtractAssets: () => void; T: any
 }) {
@@ -858,15 +893,18 @@ function ActionBar({ phase, busy, paused, hasBible, hasMap, doneCount, totalEps,
       flexShrink: 0, display: 'flex', alignItems: 'center', gap: 10,
       padding: '12px 24px', borderTop: `1px solid ${T.border}`, background: T.headerBg,
     }}>
-      {/* Step 1 */}
+      {/* Step 1 — 故事圣经 */}
       {btn(hasBible ? '↺ 重新生成故事圣经' : '① 生成故事圣经', onGenerateBible, !hasBible, busy)}
 
-      {/* Step 2 */}
-      {hasBible && btn(hasMap ? '↺ 重新生成集数大纲' : '② 生成集数大纲', onGenerateMap, !hasMap, busy)}
+      {/* Step 2 — 角色小传 */}
+      {hasBible && btn(hasBios ? '↺ 重新生成角色小传' : '② 生成角色小传', onGenerateBios, !hasBios, busy)}
 
-      {/* Step 3 */}
+      {/* Step 3 — 集数大纲 */}
+      {hasBios && btn(hasMap ? '↺ 重新生成集数大纲' : '③ 生成集数大纲', onGenerateMap, !hasMap, busy)}
+
+      {/* Step 4 — 逐集生成 */}
       {hasMap && !allDone && !busy && !paused && (
-        btn(doneCount > 0 ? `③ 继续生成（${doneCount}/${totalEps}）` : '③ 开始逐集生成', onStartEpisodes, true, busy)
+        btn(doneCount > 0 ? `④ 继续生成（${doneCount}/${totalEps}）` : '④ 开始逐集生成', onStartEpisodes, true, busy)
       )}
       {hasMap && busy && (
         <button onClick={onPause} style={{ padding: '9px 20px', borderRadius: 7, fontSize: 13, fontWeight: 600, border: '1px solid rgba(239,68,68,0.4)', cursor: 'pointer', background: 'rgba(239,68,68,0.08)', color: 'rgba(239,68,68,0.9)' }}>
