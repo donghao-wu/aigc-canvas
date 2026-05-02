@@ -66,6 +66,16 @@ const EMPTY_DATA: ScriptData = {
   episodeMap: [], episodes: [],
 }
 
+// ── 下载工具 ─────────────────────────────────────────────────
+function downloadText(filename: string, content: string) {
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href = url; a.download = filename
+  document.body.appendChild(a); a.click()
+  document.body.removeChild(a); URL.revokeObjectURL(url)
+}
+
 // ── SSE 流式请求 ─────────────────────────────────────────────
 async function streamSSE(
   body: Record<string, unknown>,
@@ -412,19 +422,30 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
   }
 
   // ── 当前显示内容 ──────────────────────────────────────────
+  // ── 下载全集 ─────────────────────────────────────────────
+  const handleDownloadAll = useCallback(() => {
+    const done = data.episodes.filter(e => e.content)
+    if (done.length === 0) return
+    const content = done.map(e => e.content).join('\n\n' + '─'.repeat(40) + '\n\n')
+    downloadText(`${projectName}-完整剧本.txt`, content)
+  }, [data.episodes, projectName])
+
   const mainContent = () => {
     if (selected === 'params') return null  // 由下面的 ParamsForm 处理
     if (selected === 'bible') {
       const text = (busy && streamBuf && selected === 'bible') ? streamBuf : data.storyBible
-      return <MarkdownView text={text} T={T} streaming={busy && selected === 'bible'} />
+      return <MarkdownView text={text} T={T} streaming={busy && selected === 'bible'}
+        onDownload={data.storyBible && !busy ? () => downloadText(`${projectName}-故事圣经.md`, data.storyBible) : undefined} />
     }
     if (selected === 'bios') {
       const text = (busy && streamBuf && selected === 'bios') ? streamBuf : data.characterBios
-      return <MarkdownView text={text} T={T} streaming={busy && selected === 'bios'} />
+      return <MarkdownView text={text} T={T} streaming={busy && selected === 'bios'}
+        onDownload={data.characterBios && !busy ? () => downloadText(`${projectName}-角色小传.txt`, data.characterBios) : undefined} />
     }
     if (selected === 'map') {
       const text = (busy && streamBuf && selected === 'map') ? streamBuf : data.episodeMapText
-      return <MarkdownView text={text} T={T} streaming={busy && selected === 'map'} />
+      return <MarkdownView text={text} T={T} streaming={busy && selected === 'map'}
+        onDownload={data.episodeMapText && !busy ? () => downloadText(`${projectName}-集数大纲.txt`, data.episodeMapText) : undefined} />
     }
     if (typeof selected === 'number') {
       const ep = data.episodes[selected]
@@ -546,6 +567,7 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
             onResume={handleResume}
             onSwitchToCanvas={onSwitchToCanvas}
             onExtractAssets={handleExtractAssets}
+            onDownloadAll={handleDownloadAll}
             T={T}
           />
         </div>
@@ -806,7 +828,7 @@ function ParamsForm({ params, setParam, T, theme, hasBible }: {
 }
 
 // ── Markdown 内容查看器 ──────────────────────────────────────
-function MarkdownView({ text, T, streaming }: { text: string; T: any; streaming: boolean }) {
+function MarkdownView({ text, T, streaming, onDownload }: { text: string; T: any; streaming: boolean; onDownload?: () => void }) {
   if (!text) return (
     <div style={{ textAlign: 'center', paddingTop: 80, color: T.textMuted }}>
       <div style={{ fontSize: 32, marginBottom: 12 }}>📄</div>
@@ -815,6 +837,13 @@ function MarkdownView({ text, T, streaming }: { text: string; T: any; streaming:
   )
   return (
     <div style={{ fontSize: 13, lineHeight: 1.9, color: T.text, maxWidth: 720 }}>
+      {!streaming && onDownload && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+          <button onClick={onDownload} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 5, background: T.nodeSubtle, border: `1px solid ${T.border}`, color: T.textSub, cursor: 'pointer' }}>
+            ↓ 下载
+          </button>
+        </div>
+      )}
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
       {streaming && <span style={{ color: T.accent }}>▌</span>}
     </div>
@@ -848,7 +877,15 @@ function EpisodeContentView({ index, content, streaming, T, onChange }: {
   )
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginBottom: 12 }}>
+        {!streaming && content && (
+          <button
+            onClick={() => downloadText(`第${index + 1}集.txt`, content)}
+            style={{ fontSize: 11, padding: '4px 10px', borderRadius: 5, background: T.nodeSubtle, border: `1px solid ${T.border}`, color: T.textSub, cursor: 'pointer' }}
+          >
+            ↓ 下载
+          </button>
+        )}
         {!streaming && (
           <button onClick={() => setEditing(true)} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 5, background: T.nodeSubtle, border: `1px solid ${T.border}`, color: T.textSub, cursor: 'pointer' }}>
             ✏️ 编辑
@@ -865,13 +902,13 @@ function EpisodeContentView({ index, content, streaming, T, onChange }: {
 
 // ── 底部操作栏 ───────────────────────────────────────────────
 function ActionBar({ phase, busy, paused, hasBible, hasBios, hasMap, doneCount, totalEps, allDone,
-  onGenerateBible, onGenerateBios, onGenerateMap, onStartEpisodes, onPause, onResume, onSwitchToCanvas, onExtractAssets, T
+  onGenerateBible, onGenerateBios, onGenerateMap, onStartEpisodes, onPause, onResume, onSwitchToCanvas, onExtractAssets, onDownloadAll, T
 }: {
   phase: number; busy: boolean; paused: boolean; hasBible: boolean; hasBios: boolean; hasMap: boolean
   doneCount: number; totalEps: number; allDone: boolean
   onGenerateBible: () => void; onGenerateBios: () => void; onGenerateMap: () => void
   onStartEpisodes: () => void; onPause: () => void; onResume: () => void
-  onSwitchToCanvas: () => void; onExtractAssets: () => void; T: any
+  onSwitchToCanvas: () => void; onExtractAssets: () => void; onDownloadAll: () => void; T: any
 }) {
   const btn = (label: string, onClick: () => void, primary = false, disabled = false): React.ReactNode => (
     <button
@@ -915,12 +952,12 @@ function ActionBar({ phase, busy, paused, hasBible, hasBios, hasMap, doneCount, 
 
       <div style={{ flex: 1 }} />
 
+      {/* 下载全集（有已完成集数时显示）*/}
+      {doneCount > 0 && btn(`↓ 下载全部剧本（${doneCount}集）`, onDownloadAll)}
+
       {/* 完成后的选项 */}
-      {allDone && (
-        <>
-          {btn('→ 进入生图模块', onSwitchToCanvas, true)}
-        </>
-      )}
+      {allDone && btn('→ 进入生图模块', onSwitchToCanvas, true)}
+
       {hasBible && (
         <div style={{ fontSize: 11, color: T.textMuted }}>
           {doneCount > 0 ? `${doneCount}/${totalEps} 集` : ''}
