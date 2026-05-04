@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import axios from 'axios'
 import { useTheme } from './ThemeContext'
+import StudioHeader from './StudioHeader'
 import type { AssetType } from './types/asset'
 
 // ── 类型 ───────────────────────────────────────────────────────
@@ -67,7 +68,7 @@ const DEFAULT_ANGLE_LABELS = ['正面', '侧面', '背面', '特写']
 
 // ── 主组件 ────────────────────────────────────────────────────
 export default function AssetLibrary({ projectId, projectName, onHome, onSwitchToCanvas, onSwitchToWorkbench }: Props) {
-  const { theme, T, toggle } = useTheme()
+  const { theme, T } = useTheme()
 
   const [assets, setAssets]           = useState<LibAsset[]>([])
   const [loading, setLoading]         = useState(true)
@@ -228,121 +229,65 @@ export default function AssetLibrary({ projectId, projectName, onHome, onSwitchT
   }, { CHARACTER: [], SCENE: [], PROP: [] })
 
   // ── Styles ───────────────────────────────────────────────────
-  const bg    = theme === 'dark' ? '#0D0B08' : '#EDE8DC'
-  const panel = theme === 'dark' ? 'rgba(24,20,16,0.98)' : 'rgba(254,252,245,0.98)'
-  const card  = theme === 'dark' ? 'rgba(30,24,16,0.9)' : 'rgba(255,252,244,0.9)'
+  const bg = theme === 'dark'
+    ? 'radial-gradient(circle at 18% 0%, rgba(99,179,237,0.12), transparent 30%), radial-gradient(circle at 80% 8%, rgba(201,152,42,0.12), transparent 28%), #08090B'
+    : 'radial-gradient(circle at 18% 0%, rgba(99,179,237,0.14), transparent 30%), radial-gradient(circle at 80% 8%, rgba(184,135,14,0.12), transparent 28%), #F3EFE4'
+  const panel = theme === 'dark' ? 'rgba(13,15,19,0.96)' : 'rgba(255,253,247,0.96)'
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', width: '100vw', height: '100vh', background: bg, overflow: 'hidden' }}>
 
       {/* ── Header ──────────────────────────────────────────── */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 10,
-        padding: '8px 16px',
-        background: T.headerBg,
-        borderBottom: `1px solid ${T.border}`,
-        backdropFilter: 'blur(24px)',
-        flexShrink: 0,
-        zIndex: 10,
-      }}>
-        {/* Logo / home */}
-        <button onClick={onHome} style={btnReset}>
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '3px 8px', borderRadius: 8,
-          }}
-            onMouseEnter={e => (e.currentTarget.style.background = T.nodeSubtle)}
-            onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-          >
-            <div style={{
-              width: 22, height: 22, borderRadius: 6,
-              background: 'rgba(201,152,42,0.12)',
-              border: '1px solid rgba(201,152,42,0.2)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <img src="/logo.svg" style={{ width: 13, height: 13 }} />
+      <StudioHeader
+        projectName={projectName}
+        active="assets"
+        onHome={onHome}
+        onSwitchToScript={onSwitchToWorkbench}
+        onSwitchToCanvas={onSwitchToCanvas}
+        actions={(
+          <>
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="搜索资产名称…"
+              style={{
+                width: 220,
+                padding: '8px 12px',
+                background: T.inputBg,
+                border: `1px solid ${T.border}`,
+                borderRadius: 10,
+                fontSize: 12,
+                color: T.text,
+                outline: 'none',
+              }}
+            />
+            <div style={{ display: 'flex', gap: 4, padding: 3, border: `1px solid ${T.border}`, borderRadius: 10, background: T.nodeSubtle }}>
+              {(['ALL', ...TYPE_ORDER] as const).map(t => (
+                <button key={t} onClick={() => setFilterType(t)} style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  padding: '6px 10px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: filterType === t ? (theme === 'dark' ? 'rgba(201,152,42,0.16)' : 'rgba(184,135,14,0.12)') : 'transparent',
+                  color: filterType === t ? T.accent : T.textSub,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s',
+                }}>
+                  {t === 'ALL' ? '全部' : TYPE_LABEL[t]}
+                </button>
+              ))}
             </div>
-            <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>壹镜</span>
-          </div>
-        </button>
-
-        <div style={{ width: 1, height: 14, background: T.border }} />
-        <span style={{ fontSize: 13, color: T.textSub, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {projectName}
-        </span>
-
-        <div style={{ width: 1, height: 14, background: T.border }} />
-
-        {/* Tab switcher */}
-        <div style={{
-          display: 'flex', alignItems: 'center',
-          background: T.nodeSubtle, border: `1px solid ${T.border}`,
-          borderRadius: 8, padding: 3, gap: 2,
-        }}>
-          {[
-            { label: '剧本',   active: false, onClick: onSwitchToWorkbench },
-            { label: '生图',   active: false, onClick: onSwitchToCanvas },
-            { label: '资产库', active: true,  onClick: undefined },
-          ].map(item => (
-            <button key={item.label} onClick={item.onClick} style={{
-              fontSize: 12, fontWeight: item.active ? 600 : 400,
-              padding: '4px 11px', borderRadius: 6, border: 'none', cursor: item.onClick ? 'pointer' : 'default',
-              background: item.active ? (theme === 'dark' ? 'rgba(201,152,42,0.15)' : 'rgba(184,135,14,0.12)') : 'transparent',
-              color: item.active ? T.accent : T.textSub,
-              transition: 'all 0.15s',
-            }}
-              onMouseEnter={e => { if (!item.active) e.currentTarget.style.color = T.text }}
-              onMouseLeave={e => { if (!item.active) e.currentTarget.style.color = T.textSub }}
-            >{item.label}</button>
-          ))}
-        </div>
-
-        {/* Search */}
-        <div style={{ flex: 1, maxWidth: 260, marginLeft: 8 }}>
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="搜索资产名称…"
-            style={{
-              width: '100%', padding: '5px 12px',
-              background: T.inputBg, border: `1px solid ${T.border}`,
-              borderRadius: 8, fontSize: 12, color: T.text,
-              outline: 'none',
-            }}
-          />
-        </div>
-
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
-          {/* Type filter */}
-          <div style={{ display: 'flex', gap: 4 }}>
-            {(['ALL', ...TYPE_ORDER] as const).map(t => (
-              <button key={t} onClick={() => setFilterType(t)} style={{
-                fontSize: 11, padding: '3px 10px', borderRadius: 6,
-                border: `1px solid ${filterType === t ? T.accent : T.border}`,
-                background: filterType === t ? (theme === 'dark' ? 'rgba(201,152,42,0.12)' : 'rgba(184,135,14,0.1)') : 'transparent',
-                color: filterType === t ? T.accent : T.textSub,
-                cursor: 'pointer', transition: 'all 0.15s',
-              }}>
-                {t === 'ALL' ? '全部' : TYPE_LABEL[t]}
-              </button>
-            ))}
-          </div>
-
-          <button onClick={toggle} style={{ ...btnReset, fontSize: 11, padding: '3px 8px', borderRadius: 6, color: T.textSub }}
-            onMouseEnter={e => e.currentTarget.style.color = T.text}
-            onMouseLeave={e => e.currentTarget.style.color = T.textSub}
-          >
-            {theme === 'dark' ? '◑ 浅色' : '◑ 深色'}
-          </button>
-        </div>
-      </div>
+          </>
+        )}
+      />
 
       {/* ── Body: grid + detail panel ───────────────────────── */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
 
         {/* Grid */}
         <div style={{
-          flex: 1, overflowY: 'auto', padding: '20px 24px',
+          flex: 1, overflowY: 'auto', padding: '24px 28px',
         }}>
           {loading ? (
             <div style={{ color: T.textMuted, fontSize: 13, paddingTop: 60, textAlign: 'center' }}>加载中…</div>
@@ -364,8 +309,8 @@ export default function AssetLibrary({ projectId, projectName, onHome, onSwitchT
                   </div>
                   <div style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-                    gap: 12,
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(156px, 1fr))',
+                    gap: 14,
                   }}>
                     {group.map(asset => (
                       <AssetCard

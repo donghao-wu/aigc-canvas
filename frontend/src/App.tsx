@@ -46,6 +46,7 @@ import PromptAnalysisNode from './nodes/PromptAnalysisNode'
 import Gallery from './Gallery'
 import ScriptWorkbench from './ScriptWorkbench'
 import AssetLibrary from './AssetLibrary'
+import StudioHeader from './StudioHeader'
 
 const nodeTypes = {
   imageGen: ImageGenNode,
@@ -125,7 +126,7 @@ interface ProjectRef { id: string; name: string }
 
 // ── 画布（需要包在 ReactFlowProvider 里） ───────────────────
 function Canvas({ project, onHome, onSwitchToWorkbench, onSwitchToAssets }: { project: ProjectRef; onHome: () => void; onSwitchToWorkbench: () => void; onSwitchToAssets: () => void }) {
-  const { theme, T, toggle } = useTheme()
+  const { theme, T } = useTheme()
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved')
@@ -373,115 +374,57 @@ function Canvas({ project, onHome, onSwitchToWorkbench, onSwitchToAssets }: { pr
 
         {/* 顶部标题栏 */}
         <Panel position="top-left">
-          <div
-            className="flex items-center gap-2"
-            style={{
-              padding: '5px 10px',
-              background: T.headerBg,
-              border: `1px solid ${T.border}`,
-              borderRadius: 999,
-              backdropFilter: 'blur(24px)',
-              boxShadow: theme === 'dark' ? '0 4px 24px rgba(0,0,0,0.5)' : '0 4px 20px rgba(0,0,0,0.08)',
-              gap: 6,
-            }}
-          >
-            {/* Logo + 返回 */}
-            <button
-              onClick={onHome}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                background: 'none', border: 'none', cursor: 'pointer', padding: '3px 6px',
-                borderRadius: 8, transition: 'background 0.15s',
-              }}
-              onMouseEnter={e => (e.currentTarget.style.background = T.nodeSubtle)}
-              onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-            >
+          <StudioHeader
+            projectName={project.name}
+            active="canvas"
+            onHome={onHome}
+            onSwitchToScript={onSwitchToWorkbench}
+            onSwitchToAssets={onSwitchToAssets}
+            floating
+            status={(
               <div style={{
-                width: 22, height: 22, borderRadius: 6,
-                background: 'rgba(201,152,42,0.12)',
-                border: '1px solid rgba(201,152,42,0.2)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '5px 9px',
+                borderRadius: 9,
+                background: saveStatus === 'saving' ? 'rgba(201,152,42,0.12)' : T.nodeSubtle,
+                border: `1px solid ${T.border}`,
               }}>
-                <img src="/logo.svg" style={{ width: 13, height: 13 }} />
+                <span style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  background: saveStatus === 'saved'  ? 'rgba(80,200,100,0.85)'
+                             : saveStatus === 'saving' ? 'rgba(201,152,42,0.95)'
+                             : 'rgba(255,120,100,0.85)',
+                }} />
+                <span style={{ fontSize: 11, color: saveStatus === 'saving' ? T.accent : T.textSub, whiteSpace: 'nowrap' }}>
+                  {saveStatus === 'saved' ? '已保存' : saveStatus === 'saving' ? '保存中' : '未保存'}
+                </span>
               </div>
-              <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>壹镜</span>
-            </button>
-
-            <div style={{ width: 1, height: 14, background: T.border }} />
-            <span style={{ fontSize: 13, fontWeight: 500, color: T.textSub, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{project.name}</span>
-
-            {/* 保存状态 */}
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 4,
-              padding: '2px 8px', borderRadius: 6,
-              background: saveStatus === 'saving' ? 'rgba(201,152,42,0.1)' : 'transparent',
-              transition: 'background 0.2s',
-            }}>
-              <div style={{
-                width: 5, height: 5, borderRadius: '50%',
-                background: saveStatus === 'saved'  ? 'rgba(80,200,100,0.7)'
-                           : saveStatus === 'saving' ? 'rgba(201,152,42,0.9)'
-                           : 'rgba(255,120,100,0.7)',
-                transition: 'background 0.3s',
-              }} />
-              <span style={{
-                fontSize: 11,
-                color: saveStatus === 'saving' ? 'rgba(201,152,42,0.8)' : T.textMuted,
-              }}>
-                {saveStatus === 'saved' ? '已保存' : saveStatus === 'saving' ? '保存中' : '未保存'}
-              </span>
-            </div>
-
-            <div style={{ width: 1, height: 14, background: T.border }} />
-
-            {/* 分段控件 */}
-            <div style={{
-              display: 'flex', alignItems: 'center',
-              background: T.nodeSubtle,
-              border: `1px solid ${T.border}`,
-              borderRadius: 8, padding: 3, gap: 2,
-            }}>
-              {[
-                { label: '剧本',   active: false,       onClick: onSwitchToWorkbench },
-                { label: '生图',   active: true,        onClick: undefined },
-                { label: '资产库', active: false,       onClick: onSwitchToAssets },
-                { label: '图片库', active: galleryOpen, onClick: () => setGalleryOpen(o => !o) },
-              ].map(item => (
-                <button
-                  key={item.label}
-                  onClick={item.onClick}
-                  style={{
-                    fontSize: 12, fontWeight: item.active ? 600 : 400,
-                    padding: '4px 11px', borderRadius: 6, border: 'none', cursor: 'pointer',
-                    background: item.active
-                      ? (theme === 'dark' ? 'rgba(201,152,42,0.15)' : 'rgba(184,135,14,0.12)')
-                      : 'transparent',
-                    color: item.active ? T.accent : T.textSub,
-                    boxShadow: item.active ? `0 1px 4px rgba(0,0,0,0.2)` : 'none',
-                    transition: 'all 0.15s',
-                  }}
-                  onMouseEnter={e => { if (!item.active) e.currentTarget.style.color = T.text }}
-                  onMouseLeave={e => { if (!item.active) e.currentTarget.style.color = T.textSub }}
-                >{item.label}</button>
-              ))}
-            </div>
-
-            <div style={{ width: 1, height: 14, background: T.border }} />
-
-            <button
-              onClick={toggle}
-              title={theme === 'dark' ? '切换浅色' : '切换深色'}
-              style={{
-                fontSize: 12, background: 'none', border: 'none', cursor: 'pointer',
-                padding: '3px 8px', color: T.textSub, borderRadius: 6,
-                transition: 'color 0.15s, background 0.15s',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.color = T.text; e.currentTarget.style.background = T.nodeSubtle }}
-              onMouseLeave={e => { e.currentTarget.style.color = T.textSub; e.currentTarget.style.background = 'none' }}
-            >
-              {theme === 'dark' ? '◑ 浅色' : '◑ 深色'}
-            </button>
-          </div>
+            )}
+            actions={(
+              <button
+                onClick={() => setGalleryOpen(o => !o)}
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  padding: '7px 10px',
+                  borderRadius: 9,
+                  border: `1px solid ${galleryOpen ? 'rgba(201,152,42,0.45)' : T.border}`,
+                  background: galleryOpen
+                    ? (theme === 'dark' ? 'rgba(201,152,42,0.16)' : 'rgba(184,135,14,0.12)')
+                    : T.nodeSubtle,
+                  color: galleryOpen ? T.accent : T.textSub,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                图片库
+              </button>
+            )}
+          />
         </Panel>
 
         {/* 操作快捷键提示（右下角，pointer-events:none 不干扰操作） */}

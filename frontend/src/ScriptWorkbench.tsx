@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import axios from 'axios'
 import { useTheme } from './ThemeContext'
+import StudioHeader from './StudioHeader'
 
 function authHeaders(): Record<string, string> {
   const token = localStorage.getItem('auth_token')
@@ -166,7 +167,7 @@ interface Props {
 }
 
 export default function ScriptWorkbench({ projectId, projectName, onHome, onSwitchToCanvas, onSwitchToAssets }: Props) {
-  const { theme, T, toggle } = useTheme()
+  const { theme, T } = useTheme()
 
   // ── 核心状态 ───────────────────────────────────────────────
   const [data, setData]             = useState<ScriptData>(EMPTY_DATA)
@@ -519,51 +520,44 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
 
   // ── 渲染 ─────────────────────────────────────────────────
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', width: '100vw', height: '100vh', background: T.canvasBg, overflow: 'hidden' }}>
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      width: '100vw',
+      height: '100vh',
+      background: theme === 'dark'
+        ? 'radial-gradient(circle at top left, rgba(201,152,42,0.12), transparent 30%), #08090B'
+        : 'radial-gradient(circle at top left, rgba(184,135,14,0.13), transparent 32%), #F3EFE4',
+      overflow: 'hidden',
+    }}>
 
       {/* ── 顶部导航 ───────────────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', background: T.headerBg, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
-        <button onClick={onHome} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: '3px 8px', borderRadius: 8 }}
-          onMouseEnter={e => (e.currentTarget.style.background = T.nodeSubtle)}
-          onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
-          <div style={{ width: 22, height: 22, borderRadius: 6, background: 'rgba(201,152,42,0.12)', border: '1px solid rgba(201,152,42,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <img src="/logo.svg" style={{ width: 13, height: 13 }} />
-          </div>
-          <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>壹镜</span>
-        </button>
-        <div style={{ width: 1, height: 16, background: T.border }} />
-        <span style={{ fontSize: 13, color: T.textSub, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{projectName}</span>
-        <div style={{ width: 1, height: 16, background: T.border }} />
-        <div style={{ display: 'flex', gap: 2, background: T.nodeSubtle, border: `1px solid ${T.border}`, borderRadius: 8, padding: 3 }}>
-          <button style={{ fontSize: 12, fontWeight: 600, padding: '4px 14px', borderRadius: 6, border: 'none', cursor: 'default', background: theme === 'dark' ? 'rgba(201,152,42,0.18)' : 'rgba(184,135,14,0.12)', color: T.accent }}>剧本</button>
-          <button onClick={onSwitchToCanvas} style={{ fontSize: 12, fontWeight: 400, padding: '4px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', background: 'transparent', color: T.textSub }}
-            onMouseEnter={e => (e.currentTarget.style.color = T.text)}
-            onMouseLeave={e => (e.currentTarget.style.color = T.textSub)}>生图</button>
-          {onSwitchToAssets && (
-            <button onClick={onSwitchToAssets} style={{ fontSize: 12, fontWeight: 400, padding: '4px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', background: 'transparent', color: T.textSub }}
-              onMouseEnter={e => (e.currentTarget.style.color = T.text)}
-              onMouseLeave={e => (e.currentTarget.style.color = T.textSub)}>资产库</button>
-          )}
-        </div>
-        <div style={{ flex: 1 }} />
-        {busy && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', background: 'rgba(201,152,42,0.1)', borderRadius: 6, border: '1px solid rgba(201,152,42,0.2)' }}>
-            <span style={{ fontSize: 11, color: T.accent }}>
-              {typeof selected === 'number'
-                ? `生成第 ${selected + 1}/${totalEps} 集...`
-                : selected === 'bible'  ? '生成故事圣经...'
-                : selected === 'bios'   ? '生成角色小传...'
-                : selected === 'assets' ? '生成资产登记册...'
-                : '生成集数大纲...'}
-            </span>
-          </div>
+      <StudioHeader
+        projectName={projectName}
+        active="script"
+        onHome={onHome}
+        onSwitchToCanvas={onSwitchToCanvas}
+        onSwitchToAssets={onSwitchToAssets}
+        status={(
+          <>
+            {busy && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', background: 'rgba(201,152,42,0.1)', borderRadius: 8, border: '1px solid rgba(201,152,42,0.2)' }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: T.accent }} />
+                <span style={{ fontSize: 11, color: T.accent, whiteSpace: 'nowrap' }}>
+                  {typeof selected === 'number'
+                    ? `生成第 ${selected + 1}/${totalEps} 集`
+                    : selected === 'bible'  ? '生成故事圣经'
+                    : selected === 'bios'   ? '生成角色小传'
+                    : selected === 'assets' ? '生成资产登记册'
+                    : '生成集数大纲'}
+                </span>
+              </div>
+            )}
+            {saveMsg && <span style={{ fontSize: 11, color: 'rgba(80,200,100,0.85)' }}>{saveMsg}</span>}
+            {error && <span style={{ fontSize: 11, color: 'rgba(239,68,68,0.92)', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={error}>{error}</span>}
+          </>
         )}
-        {saveMsg && <span style={{ fontSize: 11, color: 'rgba(80,200,100,0.8)' }}>{saveMsg}</span>}
-        {error && <span style={{ fontSize: 11, color: 'rgba(239,68,68,0.9)', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={error}>{error}</span>}
-        <button onClick={toggle} style={{ fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', padding: '3px 8px', color: T.textSub, borderRadius: 6 }}>
-          {theme === 'dark' ? '◑ 浅色' : '◑ 深色'}
-        </button>
-      </div>
+      />
 
       {/* ── 阶段进度条 ─────────────────────────────────────── */}
       <PhaseBar phase={phase} doneCount={doneCount} totalEps={totalEps} T={T} />

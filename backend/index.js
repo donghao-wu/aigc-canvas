@@ -43,11 +43,19 @@ function validateId(id) {
   return typeof id === 'string' && /^[a-zA-Z0-9_-]+$/.test(id);
 }
 
+function requireSecretEnv(name) {
+  const value = process.env[name];
+  if (!value || value.startsWith('your-') || value.startsWith('changeme-')) {
+    throw new Error(`${name} must be set in backend/.env with a strong random value`);
+  }
+  return value;
+}
+
 const DASHSCOPE_KEY = process.env.DASHSCOPE_API_KEY;
 const DS_CHAT_BASE  = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
 const DS_API_BASE   = 'https://dashscope.aliyuncs.com/api/v1';
-const JWT_SECRET    = process.env.JWT_SECRET  || 'changeme-secret';
-const ADMIN_SECRET  = process.env.ADMIN_SECRET || 'changeme-admin';
+const JWT_SECRET    = requireSecretEnv('JWT_SECRET');
+const ADMIN_SECRET  = requireSecretEnv('ADMIN_SECRET');
 
 // ── JWT 鉴权中间件 ─────────────────────────────────────────────
 function authMiddleware(req, res, next) {

@@ -6,8 +6,16 @@ const path     = require('path');
 const db       = require('../db');
 
 const router     = express.Router();
-const JWT_SECRET  = process.env.JWT_SECRET   || 'changeme-secret';
-const ADMIN_SECRET = process.env.ADMIN_SECRET || 'changeme-admin';
+function requireSecretEnv(name) {
+  const value = process.env[name];
+  if (!value || value.startsWith('your-') || value.startsWith('changeme-')) {
+    throw new Error(`${name} must be set in backend/.env with a strong random value`);
+  }
+  return value;
+}
+
+const JWT_SECRET   = requireSecretEnv('JWT_SECRET');
+const ADMIN_SECRET = requireSecretEnv('ADMIN_SECRET');
 const PROJECTS_ROOT = path.join(__dirname, '..', 'projects');
 
 // POST /api/auth/login
