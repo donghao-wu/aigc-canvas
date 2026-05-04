@@ -121,7 +121,7 @@ JSON结构如下:
 ## 五、.env 新增
 
 ```
-DASHSCOPE_API_KEY=sk-a58192a595934e2491a24f142bba260e
+DASHSCOPE_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
 ---

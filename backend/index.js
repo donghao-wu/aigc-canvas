@@ -4,13 +4,15 @@ const dotenv  = require('dotenv');
 const axios   = require('axios');
 const fs      = require('fs');
 const path    = require('path');
+const crypto  = require('crypto');
 const bcrypt  = require('bcryptjs');
 const jwt     = require('jsonwebtoken');
 const multer  = require('multer');
 
 dotenv.config();
 
-const db      = require('./db');
+const dbModule = require('./db');
+const db      = dbModule;
 const storage = require('./storage');
 
 const app = express();
@@ -248,9 +250,12 @@ app.post('/api/analyze-image', authMiddleware, async (req, res) => {
 // ── 生图接口 ─────────────────────────────────────────────────
 app.post('/api/generate-image', authMiddleware, async (req, res) => {
   try {
-    const { prompt, model = 'wanx2.1-t2i-turbo', aspectRatio = '1:1' } = req.body;
+    const { prompt, model = 'wanx2.1-t2i-turbo', aspectRatio = '1:1', projectId, assetId, label } = req.body;
     if (!prompt?.trim()) return res.status(400).json({ error: 'prompt 不能为空' });
     if (!DASHSCOPE_KEY)  return res.status(500).json({ error: '未配置 DASHSCOPE_API_KEY' });
+    if (projectId && (!validateId(projectId) || !requireProjectAccess(projectId, req.userId, 'editor'))) {
+      return res.status(403).json({ error: '无权限' });
+    }
 
     console.log(`[生图] model=${model} ratio=${aspectRatio} prompt="${prompt.slice(0, 80)}"`);
     const result = await generateWanx(prompt.trim(), model, aspectRatio);
@@ -260,6 +265,7 @@ app.post('/api/generate-image', authMiddleware, async (req, res) => {
     const ext = result.mimeType.includes('png') ? 'png' : 'jpg';
     const imageUrl = await storage.uploadImageBase64(result.base64, result.mimeType, id);
     db.persistImageRecord(id, `${id}.${ext}`, result.mimeType, prompt.trim(), model, imageUrl);
+    if (projectId) db.trackImageGen(projectId, req.userId, assetId || null, label || null);
 
     console.log(`[生图] 成功 savedId=${id}`);
     res.json({ base64: result.base64, mimeType: result.mimeType, savedId: id, imageUrl });
@@ -498,7 +504,10 @@ app.get('/api/projects/:id/stats', authMiddleware, (req, res) => {
   if (!validateId(req.params.id)) return res.status(400).json({ error: 'Invalid id' });
   if (!requireProjectAccess(req.params.id, req.userId)) return res.status(403).json({ error: '无权限' });
   const stats = dbModule.getProjectStats(req.params.id);
-  res.json(stats || { projectId: req.params.id, agentCallCount: 0, imageGenCount: 0, tokenUsed: 0, estimatedCost: 0, stagesCompleted: [] });
+  res.json(stats ? {
+    ...stats,
+    stagesCompleted: JSON.parse(stats.stagesCompleted || '[]'),
+  } : { projectId: req.params.id, agentCallCount: 0, imageGenCount: 0, tokenUsed: 0, estimatedCost: 0, stagesCompleted: [] });
 });
 
 app.get('/api/projects/:id/events', authMiddleware, (req, res) => {
@@ -508,15 +517,24 @@ app.get('/api/projects/:id/events', authMiddleware, (req, res) => {
 });
 
 app.get('/api/dashboard', authMiddleware, (req, res) => {
-  const global  = dbModule.getGlobalStats();
+  const rawGlobal = dbModule.getGlobalStats() || {};
+  const global = {
+    totalProjects: rawGlobal.projectCount || 0,
+    totalAssets: rawGlobal.assetCount || 0,
+    totalImages: rawGlobal.imageCount || 0,
+    totalTokens: rawGlobal.tokenTotal || 0,
+    estimatedCost: rawGlobal.costTotal || 0,
+  };
   const projects = dbModule.listProjectsForUser(req.userId).map(p => {
     const stats = dbModule.getProjectStats(p.id) || {};
+    const members = dbModule.listMembers(p.id);
     return {
       id:             p.id,
       name:           p.name,
       updatedAt:      p.updatedAt,
       pipelineStage:  p.pipelineStage,
       stagesCompleted: JSON.parse(stats.stagesCompleted || '[]'),
+      memberCount:    members.length,
       agentCallCount: stats.agentCallCount || 0,
       imageGenCount:  stats.imageGenCount  || 0,
       tokenUsed:      stats.tokenUsed      || 0,
@@ -935,8 +953,108 @@ ${episodeMapText.slice(0, 1500)}
 
 // ── 剧本数据存储（DB-backed）──────────────────────────────────
 // Script fields live inside projects.data alongside canvas nodes/edges.
-const SCRIPT_FIELDS = ['params', 'storyBible', 'episodeMapText', 'episodeMap',
+const SCRIPT_FIELDS = ['params', 'styleConfig', 'storyBible', 'episodeMapText', 'episodeMap',
                        'characterBios', 'assetRegistry', 'episodes'];
+
+function fieldValue(block, key) {
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = block.match(new RegExp(`^${escaped}[：:]\\s*(.+)$`, 'm'));
+  return match ? match[1].trim() : '';
+}
+
+function parseAssetRegistry(text) {
+  if (!text || typeof text !== 'string') return [];
+  return text
+    .split(/\n\s*\n+/)
+    .map(block => block.trim())
+    .filter(block => fieldValue(block, '类型') && fieldValue(block, '名称'))
+    .map(block => {
+      const rawType = fieldValue(block, '类型');
+      const type = rawType.includes('人物') || rawType.includes('角色') ? 'CHARACTER'
+                 : rawType.includes('场景') ? 'SCENE'
+                 : rawType.includes('道具') ? 'PROP'
+                 : null;
+      if (!type) return null;
+
+      const promptRows = [...block.matchAll(/^提示词[-－—]([^：:]+)[：:]\s*(.+)$/gm)]
+        .map(match => ({ label: match[1].trim(), prompt: match[2].trim() }))
+        .filter(p => p.label && p.prompt);
+      const description = fieldValue(block, '描述')
+        || fieldValue(block, '外形')
+        || fieldValue(block, '环境')
+        || fieldValue(block, '角色')
+        || '';
+      const fields = {};
+      for (const key of ['角色', '外形', '环境', '描述']) {
+        const value = fieldValue(block, key);
+        if (value) fields[key] = value;
+      }
+      return {
+        type,
+        name: fieldValue(block, '名称'),
+        description,
+        prompt: promptRows[0]?.prompt || '',
+        dna: description,
+        fields,
+        prompts: promptRows,
+      };
+    })
+    .filter(Boolean);
+}
+
+function syncAssetRegistryToDb(projectId, userId, assetRegistry, styleConfig = {}) {
+  const assets = parseAssetRegistry(assetRegistry);
+  let created = 0;
+  let updated = 0;
+  let promptCreated = 0;
+
+  for (const item of assets) {
+    let asset = dbModule.findAssetByProjectTypeName(projectId, item.type, item.name);
+    if (!asset) {
+      dbModule.createAsset({
+        id: crypto.randomUUID(),
+        projectId,
+        userId,
+        type: item.type,
+        name: item.name,
+        description: item.description,
+        prompt: item.prompt,
+        dna: item.dna,
+        fields: item.fields,
+        styleConfig,
+        tags: [],
+        createdAt: new Date().toISOString(),
+        usedInProjects: [projectId],
+      });
+      asset = dbModule.findAssetByProjectTypeName(projectId, item.type, item.name);
+      created++;
+    } else {
+      dbModule.updateAssetText(asset.id, {
+        description: item.description,
+        prompt: item.prompt || asset.prompt,
+        dna: item.dna || asset.dna,
+        fields: { ...(asset.fields || {}), ...(item.fields || {}) },
+        styleConfig,
+      });
+      asset = dbModule.findAsset(asset.id);
+      updated++;
+    }
+
+    for (const prompt of item.prompts) {
+      if (!dbModule.findPromptByAssetLabel(asset.id, prompt.label)) {
+        dbModule.createAssetPrompt({
+          id: crypto.randomUUID(),
+          assetId: asset.id,
+          label: prompt.label,
+          prompt: prompt.prompt,
+        });
+        promptCreated++;
+      }
+    }
+  }
+
+  return { created, updated, promptCreated, total: assets.length };
+}
 
 app.get('/api/projects/:id/script', authMiddleware, (req, res) => {
   if (!validateId(req.params.id)) return res.status(400).json({ error: 'Invalid id' });
@@ -971,9 +1089,17 @@ app.put('/api/projects/:id/script', authMiddleware, (req, res) => {
               : merged.characterBios   ? 'character_bios'
               : merged.storyBible      ? 'story_bible'
               : null;
-  if (stage) dbModule.updateProjectMeta(req.params.id, { pipelineStage: stage }, req.userId);
+  if (stage) {
+    dbModule.updateProjectMeta(req.params.id, { pipelineStage: stage }, req.userId);
+    dbModule.trackStageComplete(req.params.id, req.userId, stage);
+  }
 
-  res.json({ ok: true });
+  let assetSync = null;
+  if (req.body.assetRegistry !== undefined) {
+    assetSync = syncAssetRegistryToDb(req.params.id, req.userId, merged.assetRegistry, merged.styleConfig || {});
+  }
+
+  res.json({ ok: true, assetSync });
 });
 
 

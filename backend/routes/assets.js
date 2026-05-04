@@ -4,10 +4,34 @@ const db      = require('../db');
 
 const router = express.Router();
 
+function canReadProjectAssets(projectId, userId) {
+  if (projectId === '__global__') return true;
+  return !!db.findMembership(projectId, userId);
+}
+
+function canEditProjectAssets(projectId, userId) {
+  if (projectId === '__global__') return true;
+  const membership = db.findMembership(projectId, userId);
+  return !!membership && ['owner', 'editor'].includes(membership.role);
+}
+
+function canReadAsset(asset, userId) {
+  if (!asset) return false;
+  if (asset.projectId === '__global__') return true;
+  return canReadProjectAssets(asset.projectId, userId);
+}
+
+function canEditAsset(asset, userId) {
+  if (!asset) return false;
+  if (asset.userId === userId) return true;
+  return canEditProjectAssets(asset.projectId, userId);
+}
+
 // GET /api/assets?projectId=xxx  (or projectId=__global__)
 router.get('/', (req, res) => {
   const { projectId } = req.query;
   if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+  if (!canReadProjectAssets(projectId, req.userId)) return res.status(403).json({ error: 'Forbidden' });
 
   const assets = projectId === '__global__'
     ? db.listGlobalAssets()
@@ -25,6 +49,7 @@ router.post('/', (req, res) => {
   if (!['CHARACTER', 'SCENE', 'PROP'].includes(type)) {
     return res.status(400).json({ error: 'type must be CHARACTER, SCENE, or PROP' });
   }
+  if (!canEditProjectAssets(projectId, req.userId)) return res.status(403).json({ error: 'Forbidden' });
 
   const id = crypto.randomUUID();
   db.createAsset({
@@ -52,7 +77,7 @@ router.patch('/:id/image', (req, res) => {
 
   const asset = db.findAsset(req.params.id);
   if (!asset) return res.status(404).json({ error: 'Asset not found' });
-  if (asset.userId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+  if (!canEditAsset(asset, req.userId)) return res.status(403).json({ error: 'Forbidden' });
 
   db.updateAssetImage(req.params.id, imageUrl, savedId || null);
   res.json(db.findAsset(req.params.id));
@@ -62,10 +87,13 @@ router.patch('/:id/image', (req, res) => {
 router.patch('/:id/dna', (req, res) => {
   const asset = db.findAsset(req.params.id);
   if (!asset) return res.status(404).json({ error: 'Asset not found' });
-  if (asset.userId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+  if (!canEditAsset(asset, req.userId)) return res.status(403).json({ error: 'Forbidden' });
 
   const { dna, fields } = req.body;
-  db.updateAssetDna(req.params.id, dna ?? asset.dna ?? '', fields ?? asset.fields ?? {});
+  db.updateAssetText(req.params.id, {
+    dna: dna ?? asset.dna ?? '',
+    fields: fields ?? asset.fields ?? {},
+  });
   res.json(db.findAsset(req.params.id));
 });
 
@@ -73,7 +101,7 @@ router.patch('/:id/dna', (req, res) => {
 router.delete('/:id', (req, res) => {
   const asset = db.findAsset(req.params.id);
   if (!asset) return res.status(404).json({ error: 'Asset not found' });
-  if (asset.userId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+  if (!canEditAsset(asset, req.userId)) return res.status(403).json({ error: 'Forbidden' });
 
   db.deleteAsset(req.params.id);
   db.deletePromptsByAsset(req.params.id);
@@ -86,6 +114,7 @@ router.delete('/:id', (req, res) => {
 router.get('/:id/prompts', (req, res) => {
   const asset = db.findAsset(req.params.id);
   if (!asset) return res.status(404).json({ error: 'Asset not found' });
+  if (!canReadAsset(asset, req.userId)) return res.status(403).json({ error: 'Forbidden' });
   res.json(db.listPromptsByAsset(req.params.id));
 });
 
@@ -93,7 +122,7 @@ router.get('/:id/prompts', (req, res) => {
 router.post('/:id/prompts', (req, res) => {
   const asset = db.findAsset(req.params.id);
   if (!asset) return res.status(404).json({ error: 'Asset not found' });
-  if (asset.userId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+  if (!canEditAsset(asset, req.userId)) return res.status(403).json({ error: 'Forbidden' });
 
   const { label, prompt, imageUrl } = req.body;
   if (!label || !prompt) return res.status(400).json({ error: 'label and prompt are required' });
@@ -107,7 +136,7 @@ router.post('/:id/prompts', (req, res) => {
 router.patch('/:id/prompts/:promptId/image', (req, res) => {
   const asset = db.findAsset(req.params.id);
   if (!asset) return res.status(404).json({ error: 'Asset not found' });
-  if (asset.userId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+  if (!canEditAsset(asset, req.userId)) return res.status(403).json({ error: 'Forbidden' });
 
   const { imageUrl } = req.body;
   if (!imageUrl) return res.status(400).json({ error: 'imageUrl is required' });
@@ -120,7 +149,7 @@ router.patch('/:id/prompts/:promptId/image', (req, res) => {
 router.delete('/:id/prompts/:promptId', (req, res) => {
   const asset = db.findAsset(req.params.id);
   if (!asset) return res.status(404).json({ error: 'Asset not found' });
-  if (asset.userId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+  if (!canEditAsset(asset, req.userId)) return res.status(403).json({ error: 'Forbidden' });
 
   db.db.prepare('DELETE FROM asset_prompts WHERE id = ? AND assetId = ?').run(req.params.promptId, req.params.id);
   res.json(db.listPromptsByAsset(req.params.id));
@@ -130,6 +159,7 @@ router.delete('/:id/prompts/:promptId', (req, res) => {
 router.get('/:id', (req, res) => {
   const asset = db.findAssetWithPrompts(req.params.id);
   if (!asset) return res.status(404).json({ error: 'Asset not found' });
+  if (!canReadAsset(asset, req.userId)) return res.status(403).json({ error: 'Forbidden' });
   res.json(asset);
 });
 

@@ -9,8 +9,10 @@
 替代漫剧公司现有的碎片化工作流（豆包 Agent 剧本 → 手动编辑 → Liblib 生图 → 第三方视频平台），提供统一的内部 AIGC 平台。
 
 **核心模块：**
-- **剧本模块** — AI 四步 Pipeline 生成完整短剧剧本（支持 60 集以上），含故事圣经、集数大纲、逐集生成、自动摘要
-- **生图模块** — ReactFlow 画布，支持文生图、参考图生图、资产管理
+- **剧本模块** — AI 六步 Pipeline 生成完整短剧剧本（支持 60 集以上），含故事圣经、角色小传、资产登记、集数大纲、逐集生成、自动摘要
+- **资产库** — 角色/场景/道具资产库，支持 Character DNA、多视角提示词和单角度重生图
+- **生图模块** — ReactFlow 画布，支持文生图、参考图生图、图片分析和视频生成
+- **项目仪表盘** — 汇总项目、资产、图片、Token 和估算成本，显示流水线进度
 
 ---
 
@@ -110,23 +112,25 @@ cd frontend && npm run dev
 aigc-canvas/
 ├── backend/
 │   ├── index.js                 # Express 入口，核心路由
-│   ├── db.js                    # SQLite 数据层（用户/图片/资产）
+│   ├── db.js                    # SQLite 数据层（用户/项目/协作/统计/图片/资产）
+│   ├── migrate.js               # JSON 项目数据 → SQLite 迁移脚本
 │   ├── storage.js               # 存储抽象层（local/OSS 切换）
 │   ├── routes/
 │   │   ├── auth.js              # 登录 / 用户管理
 │   │   ├── gallery.js           # 图片库
 │   │   └── assets.js            # 视觉资产 CRUD
-│   ├── projects/                # 用户项目数据（JSON 文件，gitignore）
+│   ├── projects/                # 旧版 JSON 项目数据（gitignore，仅迁移用）
 │   ├── data/                    # SQLite 数据库（gitignore）
 │   ├── generated/               # 本地生成图片（gitignore）
 │   └── .env.example             # 环境变量模板
 │
 └── frontend/
     ├── src/
-    │   ├── App.tsx              # 根组件，路由（home/项目/生图）
+    │   ├── App.tsx              # 根组件，路由（home/剧本/生图/资产库）
     │   ├── LoginPage.tsx        # 登录页
-    │   ├── ProjectHome.tsx      # 项目列表 + 全局资产库
-    │   ├── ScriptWorkbench.tsx  # 剧本模块（四步 Pipeline）
+    │   ├── ProjectHome.tsx      # 项目列表 + Dashboard + 全局资产库
+    │   ├── ScriptWorkbench.tsx  # 剧本模块（六步 Pipeline）
+    │   ├── AssetLibrary.tsx     # 项目资产库 + DNA + 多视角提示词
     │   ├── Gallery.tsx          # 图片库面板
     │   ├── ThemeContext.tsx     # 深色/浅色主题
     │   ├── nodes/               # ReactFlow 自定义节点
@@ -147,18 +151,23 @@ aigc-canvas/
 
 ## 核心功能
 
-### 剧本模块（四步 Pipeline）
+### 剧本模块（六步 Pipeline）
 
 专为 60 集短剧设计的 AI 生成流程，解决一次性生成导致的人物前后矛盾和情节崩坏问题。
 
 ```
-① 配置  →  ② 故事圣经  →  ③ 集数大纲  →  ④ 逐集生成
-  即时       qwen-max       qwen-max       qwen-max × N集
-             ~60s            ~90s           ~25s/集
+① 配置 → ② 故事圣经 → ③ 角色小传 → ④ 资产登记 → ⑤ 集数大纲 → ⑥ 逐集生成/摘要
+  即时      qwen-max      qwen-max      qwen-max      qwen-max      qwen-max/qwen-turbo
 ```
 
 **故事圣经（Story Bible）**
 包含：剧名定位、世界观背景、人物图谱（主角/反派/配角完整弧线）、三幕结构规划、情感节奏设计。是后续所有集数的创作"宪法"。
+
+**角色小传（Character Bios）**
+基于故事圣经生成全部主要角色、关键配角和反派的小传，作为后续集数大纲与逐集剧本的人设依据。
+
+**资产登记（Asset Registry）**
+基于故事圣经与角色小传抽取角色、场景、道具资产，并生成多视角提示词。保存剧本数据时会同步入 `assets` 和 `asset_prompts`，进入项目资产库。
 
 **集数大纲（Episode Map）**
 每集一行，格式：`第N集《集名》| 情节: ... | 钩子: ... | 结尾: ...`
@@ -169,6 +178,16 @@ aigc-canvas/
 - 摘要由 `qwen-turbo` 快速生成（成本低），正文用 `qwen-max`
 - 支持暂停 / 恢复，每 5 集自动保存
 - 每集可手动编辑
+
+---
+
+### 资产库
+
+- **项目资产** — 从剧本工作台的资产登记册自动同步角色、场景、道具
+- **Character DNA** — 每个资产可维护一段固定特征描述，用于跨图保持一致性
+- **多视角提示词** — 支持正面、侧面、背面、特写、全景、中景等角度提示词
+- **单角度重生图** — 资产详情中可对封面或任意角度单独调用 `/api/generate-image`
+- **权限隔离** — 项目资产按 `project_members` 检查读写权限，全局资产库仍使用 `projectId='__global__'`
 
 ---
 
@@ -210,6 +229,10 @@ PUT    /api/projects/:id      # 保存画布
 DELETE /api/projects/:id      # 删除项目
 GET    /api/projects/:id/script  # 获取剧本数据
 PUT    /api/projects/:id/script  # 保存剧本数据
+GET    /api/projects/:id/status  # 项目协作状态
+GET    /api/projects/:id/stats   # 项目统计
+GET    /api/projects/:id/events  # 项目事件日志
+GET    /api/dashboard            # 首页 Dashboard 汇总
 ```
 
 ### AI 生成
@@ -228,6 +251,8 @@ POST /api/script-agent        # 剧本 Agent（SSE 流式）
 | mode | 说明 | 模型 |
 |------|------|------|
 | `story_bible` | 生成故事圣经 | qwen-max |
+| `character_bios` | 生成角色小传 | qwen-max |
+| `asset_registry` | 生成资产登记册 | qwen-max |
 | `episode_map` | 生成集数大纲 | qwen-max |
 | `write_episode` | 生成单集剧本 | qwen-max |
 | `summarize_episode` | 生成集数摘要 | qwen-turbo |
@@ -238,6 +263,11 @@ POST /api/script-agent        # 剧本 Agent（SSE 流式）
 GET    /api/assets?projectId=xxx   # 资产列表（projectId='__global__' 为全局库）
 POST   /api/assets                 # 创建资产
 PATCH  /api/assets/:id/image       # 更新资产图片
+PATCH  /api/assets/:id/dna         # 更新资产 DNA/结构化字段
+GET    /api/assets/:id/prompts     # 多视角提示词列表
+POST   /api/assets/:id/prompts     # 新增多视角提示词
+PATCH  /api/assets/:id/prompts/:promptId/image  # 更新某角度图片
+DELETE /api/assets/:id/prompts/:promptId         # 删除某角度提示词
 DELETE /api/assets/:id             # 删除资产
 ```
 
@@ -264,11 +294,19 @@ images (id, filename, mimeType, prompt, model, refCount, imageUrl, createdAt)
 assets (
   id, projectId, userId,
   type CHECK(type IN ('CHARACTER','SCENE','PROP')),
-  name, description, prompt, imageUrl, savedId,
+  name, description, prompt, dna, fields, styleConfig,
+  imageUrl, savedId,
   tags TEXT DEFAULT '[]',
   usedInProjects TEXT DEFAULT '[]',
   createdAt
 )
+
+-- 项目与协作
+projects (id, name, ownerId, data, pipelineStage, styleConfig, createdAt, updatedAt, updatedBy)
+project_members (projectId, userId, role, joinedAt)
+project_stats (projectId, agentCallCount, imageGenCount, tokenUsed, estimatedCost, stagesCompleted, updatedAt)
+events (id, projectId, userId, type, meta, createdAt)
+asset_prompts (id, assetId, label, prompt, imageUrl, generatedAt)
 ```
 
 全局资产库：`projectId = '__global__'`
@@ -389,6 +427,14 @@ git ls-files | grep "\.env$"
 git rm --cached backend/.env && echo "backend/.env" >> .gitignore
 ```
 
+同时确认本地数据库未入 git：
+
+```bash
+git ls-files | grep -E "backend/(data/|.*\.db|.*\.db-wal|.*\.db-shm)"
+```
+
+预期：**无输出**。SQLite 数据库包含用户、项目、资产和图片记录，不得提交。
+
 ### 3. git 历史中无密钥
 
 ```bash
@@ -444,7 +490,7 @@ ALLOWED_ORIGINS=https://your-domain.com,https://www.your-domain.com
 | SQL 注入 | better-sqlite3 参数化查询，无字符串拼接 |
 | 路径穿越 | `validateId()` 白名单正则 + `path.startsWith()` 双重校验 |
 | 文件类型 | multer MIME 白名单（jpeg/png/webp/gif）|
-| 用户隔离 | 每个用户独立项目目录，`userId` 来自 JWT 解码 |
+| 用户隔离 | 项目通过 `project_members` 控制 owner/editor/viewer 权限，`userId` 来自 JWT 解码 |
 | Body 大小 | 限制 10mb，防超大 payload 打爆内存 |
 | 密钥日志 | 启动日志仅打印 key 前缀（`sk-xxxxxxx...`）|
 
@@ -482,7 +528,14 @@ chore: 依赖/配置更新
 
 ## Changelog
 
-### v0.4.2（当前）— 2026-05-01
+### v0.5.0（当前）— 2026-05-04
+- **DB-first 项目模型**：项目画布、剧本、协作成员、统计、事件统一进入 SQLite；旧 JSON 数据可通过 `backend/migrate.js` 迁移
+- **项目 Dashboard**：新增 `/api/dashboard`，首页显示项目、资产、图片、Token、估算成本和流水线进度
+- **资产库闭环**：资产登记册保存后自动同步到资产库；资产支持 DNA、多视角提示词和单角度重生图
+- **权限加固**：项目资产读取/编辑按 `project_members` 检查，防止只凭 projectId 读取他人项目资产
+- **泄漏防护**：`.gitignore` 新增 `backend/*.db`、`*.db-shm`、`*.db-wal`，避免根目录 SQLite 数据误提交
+
+### v0.4.2 — 2026-05-01
 - **死代码清理**：删除 `PipelinePage.tsx`（745 行，已下线模块）；后端移除 7 个失效 mode 处理器（`generate`/`review`/`extract_assets`/`analyze`/`outline`/`prompts`/`chat`）、`/api/asset-agent` 路由、`/api/pipeline/save-manifest` 路由及相关常量（`STYLE_PREFIXES`/`buildAssetSystemPrompt`/`AGENT_MODEL_FAST`/`AGENT_PROMPT`/`PIPELINE_OUTPUT_DIR`）
 - **script-agent 精简**：后端仅保留 4 个活跃 mode（`story_bible`/`episode_map`/`write_episode`/`summarize_episode`），未知 mode 返回 400
 - **README 同步**：API 文档、项目结构、Changelog 均已更新

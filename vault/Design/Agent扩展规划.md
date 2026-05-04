@@ -50,6 +50,8 @@
 - `PATCH /api/assets/:id/dna` 端点
 - 资产库详情面板：DNA 字段可在线编辑保存
 - 多视角提示词（`asset_prompts` 表）：label / prompt / imageUrl，可单独生图
+- 资产登记册保存后自动同步到 `assets` / `asset_prompts`
+- 项目资产读写按 `project_members` 权限控制
 
 **与现有资产登记的区别**：
 - `description` 字段：中文外观描述，给人类读的
@@ -58,8 +60,9 @@
 - `asset_prompts`：多视角提示词（正面/侧面/背面/特写），每个角度独立生图
 
 **TODO**：
-- [ ] 资产登记 prompt 输出中自动提取 DNA 字段（目前需手动填写）
+- [x] 资产登记 prompt 输出中自动提取 DNA 字段（使用外形/描述/环境字段作为初始 DNA）
 - [ ] 推送到画布时，节点 presetPrompt 自动拼接 DNA
+- [ ] 增加强制重同步/版本化，允许刷新已有 label 的提示词但保留已生成图
 
 ---
 

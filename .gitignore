@@ -15,6 +15,9 @@ backend/pipeline-output/
 
 # Database (contains all user data — never commit)
 backend/data/
+backend/*.db
+backend/*.db-shm
+backend/*.db-wal
 
 # Legacy flat-file storage (migrated to SQLite, but may still exist locally)
 backend/users.json

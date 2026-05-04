@@ -241,9 +241,15 @@ const stmts = {
   `),
   updateAssetImage:    db.prepare('UPDATE assets SET imageUrl = ?, savedId = ? WHERE id = ?'),
   updateAssetDna:      db.prepare('UPDATE assets SET dna = ? WHERE id = ?'),
+  updateAssetText:     db.prepare(`
+    UPDATE assets
+    SET description = ?, prompt = ?, dna = ?, fields = ?, styleConfig = ?
+    WHERE id = ?
+  `),
   listAssetsByProject: db.prepare('SELECT * FROM assets WHERE projectId = ? ORDER BY createdAt DESC'),
   listGlobalAssets:    db.prepare("SELECT * FROM assets WHERE projectId = '__global__' ORDER BY createdAt DESC"),
   findAsset:           db.prepare('SELECT * FROM assets WHERE id = ?'),
+  findAssetByProjectTypeName: db.prepare('SELECT * FROM assets WHERE projectId = ? AND type = ? AND name = ?'),
   deleteAsset:         db.prepare('DELETE FROM assets WHERE id = ?'),
   addProjectToAsset:   db.prepare(`
     UPDATE assets
@@ -256,6 +262,7 @@ const stmts = {
     'INSERT INTO asset_prompts (id, assetId, label, prompt, imageUrl, generatedAt) VALUES (?, ?, ?, ?, ?, ?)'
   ),
   listPromptsByAsset:  db.prepare('SELECT * FROM asset_prompts WHERE assetId = ? ORDER BY rowid'),
+  findPromptByAssetLabel: db.prepare('SELECT * FROM asset_prompts WHERE assetId = ? AND label = ?'),
   updatePromptImage:   db.prepare('UPDATE asset_prompts SET imageUrl = ?, generatedAt = ? WHERE id = ?'),
   deletePromptsByAsset: db.prepare('DELETE FROM asset_prompts WHERE assetId = ?'),
 };
@@ -304,8 +311,15 @@ const trackImageGen = db.transaction((projectId, userId, assetId, label) => {
 
 const trackStageComplete = db.transaction((projectId, userId, stageName) => {
   const now = new Date().toISOString();
-  const id  = `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   stmts.upsertStats.run(projectId, now);
+  const stats = stmts.findStats.get(projectId);
+  const completed = JSON.parse(stats?.stagesCompleted || '[]');
+  if (completed.includes(stageName)) {
+    db.prepare("UPDATE projects SET pipelineStage = ?, updatedAt = ? WHERE id = ?")
+      .run(stageName, now, projectId);
+    return;
+  }
+  const id  = `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   stmts.insertEvent.run(id, projectId, userId, 'stage_complete',
     JSON.stringify({ stageName }), Date.now());
   stmts.markStageComplete.run(stageName, now, projectId, stageName);
@@ -436,9 +450,26 @@ module.exports = {
   updateAssetDna(id, dna) {
     stmts.updateAssetDna.run(dna, id);
   },
+  updateAssetText(id, patch) {
+    const existing = parseAsset(stmts.findAsset.get(id));
+    if (!existing) return;
+    stmts.updateAssetText.run(
+      patch.description ?? existing.description ?? '',
+      patch.prompt      ?? existing.prompt      ?? '',
+      patch.dna         ?? existing.dna         ?? '',
+      typeof patch.fields === 'string'
+        ? patch.fields
+        : JSON.stringify(patch.fields ?? existing.fields ?? {}),
+      typeof patch.styleConfig === 'string'
+        ? patch.styleConfig
+        : JSON.stringify(patch.styleConfig ?? existing.styleConfig ?? {}),
+      id,
+    );
+  },
   listAssetsByProject: (projectId) => stmts.listAssetsByProject.all(projectId).map(parseAsset),
   listGlobalAssets:    ()          => stmts.listGlobalAssets.all().map(parseAsset),
   findAsset:           (id)        => parseAsset(stmts.findAsset.get(id)),
+  findAssetByProjectTypeName: (projectId, type, name) => parseAsset(stmts.findAssetByProjectTypeName.get(projectId, type, name)),
   deleteAsset:         (id)        => stmts.deleteAsset.run(id),
 
   // asset with its prompts
@@ -470,6 +501,7 @@ module.exports = {
   updatePromptImage(id, imageUrl) {
     stmts.updatePromptImage.run(imageUrl, new Date().toISOString(), id);
   },
+  findPromptByAssetLabel: (assetId, label) => stmts.findPromptByAssetLabel.get(assetId, label),
   listPromptsByAsset:  (assetId) => stmts.listPromptsByAsset.all(assetId),
   deletePromptsByAsset:(assetId) => stmts.deletePromptsByAsset.run(assetId),
 };

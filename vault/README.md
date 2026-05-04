@@ -17,6 +17,7 @@
 | [[Styles/00-画风总览]] | 所有画风 style token 一览 |
 | [[Research/NanoBanana生图技巧]] | 漫剧生图最佳实践 |
 | [[Design/Agent扩展规划]] | 下一步要做的 agent |
+| [[Design/资产库闭环修复]] | 资产登记册 → 资产库同步与权限修复 |
 
 ## 同步规则
 
@@ -32,6 +33,14 @@
 | 集数摘要 | qwen-turbo | 512 |
 
 ## Changelog
+
+### 2026-05-04 — 资产库闭环修复
+
+- 修复后端项目路由 `dbModule` 引用断点，Dashboard 返回字段与前端对齐
+- 资产登记册保存后自动解析并同步到 `assets` / `asset_prompts`
+- 资产库单角度生图改为调用真实 `/api/generate-image`，直接使用返回的 `imageUrl` / `savedId`
+- 资产接口按 `project_members` 做项目权限检查，避免只凭 projectId 读取资产
+- `.gitignore` 补充根目录 SQLite 数据库忽略规则，降低用户数据误提交风险
 
 ### 2026-05-04 — 团队协作 + 资产库 + Dashboard
 

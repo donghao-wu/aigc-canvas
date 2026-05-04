@@ -32,7 +32,7 @@
 
 打开 `backend/.env`，在末尾追加：
 ```
-DASHSCOPE_API_KEY=sk-a58192a595934e2491a24f142bba260e
+DASHSCOPE_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
 - [ ] **Step 2: 在 index.js 中新增 buildPromptFromAnalysis 辅助函数**

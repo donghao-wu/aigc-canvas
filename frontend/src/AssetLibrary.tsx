@@ -151,45 +151,43 @@ export default function AssetLibrary({ projectId, projectName, onHome, onSwitchT
     if (!selected) return
     const { data } = await axios.delete<AssetPrompt[]>(`/api/assets/${selected.id}/prompts/${promptId}`)
     setPrompts(data)
-  }, [selected])
+  }, [selected, projectId])
 
   // ── Generate image for a prompt angle ────────────────────────
   const generateForAngle = useCallback(async (p: AssetPrompt) => {
     if (!selected) return
     setGenLoading(g => ({ ...g, [p.id]: true }))
     try {
-      // Call the existing image-gen endpoint with the prompt
-      const { data: genData } = await axios.post('/api/generate', {
+      const { data: genData } = await axios.post('/api/generate-image', {
         prompt: p.prompt,
         model: 'wanx2.1-t2i-turbo',
-        size: '1024*1024',
+        aspectRatio: '1:1',
+        projectId,
+        assetId: selected.id,
+        label: p.label,
       })
       const imageUrl = genData.imageUrl || genData.url
       if (!imageUrl) throw new Error('No image URL returned')
 
-      // Upload to saved images and get CDN url
-      const { data: saved } = await axios.post('/api/images/save', { imageUrl })
-      const finalUrl = saved.url || imageUrl
-
       // Update prompt record
       const { data: updatedPrompts } = await axios.patch<AssetPrompt[]>(
         `/api/assets/${selected.id}/prompts/${p.id}/image`,
-        { imageUrl: finalUrl }
+        { imageUrl }
       )
       setPrompts(updatedPrompts)
 
       // Also update asset cover image if it has no image yet
       if (!selected.imageUrl) {
-        await axios.patch(`/api/assets/${selected.id}/image`, { imageUrl: finalUrl })
-        setSelected(s => s ? { ...s, imageUrl: finalUrl } : s)
-        setAssets(a => a.map(x => x.id === selected.id ? { ...x, imageUrl: finalUrl } : x))
+        await axios.patch(`/api/assets/${selected.id}/image`, { imageUrl, savedId: genData.savedId || null })
+        setSelected(s => s ? { ...s, imageUrl } : s)
+        setAssets(a => a.map(x => x.id === selected.id ? { ...x, imageUrl } : x))
       }
     } catch (e: any) {
       console.error('[gen angle]', e.message)
     } finally {
       setGenLoading(g => ({ ...g, [p.id]: false }))
     }
-  }, [selected])
+  }, [selected, projectId])
 
   // ── Generate cover image (main asset prompt) ─────────────────
   const generateCover = useCallback(async () => {
@@ -197,18 +195,19 @@ export default function AssetLibrary({ projectId, projectName, onHome, onSwitchT
     const pid = 'cover'
     setGenLoading(g => ({ ...g, [pid]: true }))
     try {
-      const { data: genData } = await axios.post('/api/generate', {
+      const { data: genData } = await axios.post('/api/generate-image', {
         prompt: selected.prompt,
         model: 'wanx2.1-t2i-turbo',
-        size: '1024*1024',
+        aspectRatio: '1:1',
+        projectId,
+        assetId: selected.id,
+        label: 'cover',
       })
       const imageUrl = genData.imageUrl || genData.url
       if (!imageUrl) throw new Error('No image URL returned')
-      const { data: saved } = await axios.post('/api/images/save', { imageUrl })
-      const finalUrl = saved.url || imageUrl
-      await axios.patch(`/api/assets/${selected.id}/image`, { imageUrl: finalUrl })
-      setSelected(s => s ? { ...s, imageUrl: finalUrl } : s)
-      setAssets(a => a.map(x => x.id === selected.id ? { ...x, imageUrl: finalUrl } : x))
+      await axios.patch(`/api/assets/${selected.id}/image`, { imageUrl, savedId: genData.savedId || null })
+      setSelected(s => s ? { ...s, imageUrl } : s)
+      setAssets(a => a.map(x => x.id === selected.id ? { ...x, imageUrl } : x))
     } catch (e: any) {
       console.error('[gen cover]', e.message)
     } finally {
