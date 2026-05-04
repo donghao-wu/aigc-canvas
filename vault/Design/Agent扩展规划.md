@@ -4,14 +4,14 @@
 
 ## 优先级评估
 
-| Agent | 价值 | 实现难度 | 优先级 |
-|-------|------|---------|--------|
-| 审稿 Agent | 高 | 低 | P0 |
-| Character DNA | 高 | 低 | P0 |
-| 一致性检查 Agent | 高 | 中 | P1 |
-| 美术指导 Agent | 中 | 中 | P1 |
-| 投流文案 Agent | 高 | 低 | P1 |
-| 分镜 Agent | 中 | 高 | P2 |
+| Agent | 价值 | 实现难度 | 优先级 | 状态 |
+|-------|------|---------|--------|------|
+| 审稿 Agent | 高 | 低 | P0 | 待开发 |
+| Character DNA | 高 | 低 | P0 | ✅ 已上线 (2026-05-04) |
+| 一致性检查 Agent | 高 | 中 | P1 | 待开发 |
+| 美术指导 Agent | 中 | 中 | P1 | 待开发 |
+| 投流文案 Agent | 高 | 低 | P1 | 待开发 |
+| 分镜 Agent | 中 | 高 | P2 | 待开发 |
 
 ---
 
@@ -36,7 +36,7 @@
 
 ---
 
-## P0：Character DNA
+## P0：Character DNA ✅ 已上线
 
 **作用**：给每个角色生成一段固定英文"锚定描述"，所有涉及该角色的生图提示词都拼接这段 DNA，确保跨图一致性。
 
@@ -45,15 +45,21 @@
 林若曦-DNA: 25-year-old Chinese woman, slim build, long straight black hair, cold sharp eyes, usually wearing white blazer or professional attire, tall posture
 ```
 
-**实现方案**：
-- 在资产登记 prompt 中加入 `DNA:` 字段（独立于 `提示词-三视图` 等）
-- 前端展示 DNA 字段，支持复制
-- 推送到画布时，每个节点的 presetPrompt = DNA + 角度模板
+**已实现**（2026-05-04）：
+- `assets` 表新增 `dna TEXT` 字段
+- `PATCH /api/assets/:id/dna` 端点
+- 资产库详情面板：DNA 字段可在线编辑保存
+- 多视角提示词（`asset_prompts` 表）：label / prompt / imageUrl，可单独生图
 
 **与现有资产登记的区别**：
-- `外形` 字段：中文，给人类读的
-- `提示词-三视图`：完整提示词，可直接粘贴到 NanoBanana
-- `DNA`：英文关键描述，用于拼接到其他提示词（用于一致性）
+- `description` 字段：中文外观描述，给人类读的
+- `prompt` 字段：完整提示词，可直接粘贴到 NanoBanana
+- `dna` 字段：英文关键描述，用于拼接到其他提示词保持一致性
+- `asset_prompts`：多视角提示词（正面/侧面/背面/特写），每个角度独立生图
+
+**TODO**：
+- [ ] 资产登记 prompt 输出中自动提取 DNA 字段（目前需手动填写）
+- [ ] 推送到画布时，节点 presetPrompt 自动拼接 DNA
 
 ---
 

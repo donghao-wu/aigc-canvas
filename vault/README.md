@@ -30,3 +30,24 @@
 |------|------|-----------|
 | 剧本创作（主力）| qwen-max | 4096–8192 |
 | 集数摘要 | qwen-turbo | 512 |
+
+## Changelog
+
+### 2026-05-04 — 团队协作 + 资产库 + Dashboard
+
+**后端**
+- `db.js`：新增 `project_members` / `project_stats` / `events` / `asset_prompts` 四张表；`trackAgentCall / trackImageGen / trackStageComplete` 事务追踪；`findAssetWithPrompts / listAssetsWithPrompts` 多视角查询
+- `index.js`：项目路由全量迁移 DB；script 路由改为读写 `projects.data` 列；`/api/script-agent` 接入 token 追踪（读 SSE 最后一帧 `usage`）；新增协作 API：`/api/projects/:id/status`（10s 轮询）、`/api/projects/:id/members`、`/api/dashboard`
+- `routes/assets.js`：新增多视角提示词 CRUD（`/api/assets/:id/prompts`）、DNA 字段更新（`PATCH /api/assets/:id/dna`）
+- `migrate.js`：JSON 文件 → DB 一次性迁移脚本
+
+**前端**
+- `AssetLibrary.tsx`：新页面，类型网格 + 右侧详情面板；支持 DNA 编辑、多视角提示词增删、单角度重生图
+- `ProjectHome.tsx`：全局统计条（项目/资产/图片/Token/费用）；项目卡片新增 7 步流水线进度条 + 协作人数
+- 三 Tab 互通：剧本 ↔ 生图 ↔ 资产库
+
+**架构决策**（见 [[Agents/00-架构总览]]）
+- DB-first：所有项目数据（画布 + 剧本）存入 `projects.data` JSON 列
+- 协作：轮询 10s + Last-write-wins 冲突提示
+- 追踪：双写 events + project_stats，dashboard 直读聚合表
+- Character DNA：P0 功能已上线，见 [[Design/Agent扩展规划]]
