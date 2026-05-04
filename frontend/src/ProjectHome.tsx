@@ -1,6 +1,31 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import axios from 'axios'
+import {
+  ArrowRight,
+  Boxes,
+  Check,
+  Coins,
+  Copy,
+  Database,
+  FileText,
+  FolderKanban,
+  Image,
+  LayoutDashboard,
+  LogOut,
+  Moon,
+  Palette,
+  PenLine,
+  Plus,
+  Search,
+  Sparkles,
+  Sun,
+  Trash2,
+  Users,
+  Video,
+} from 'lucide-react'
 import { useTheme } from './ThemeContext'
+import type { DbAsset } from './types/asset'
+import { TYPE_LABEL } from './types/asset'
 
 interface ProjectMeta {
   id: string
@@ -11,21 +36,6 @@ interface ProjectMeta {
   pipelineStage?: string
   memberCount?: number
   stagesCompleted?: string[]
-}
-
-// Pipeline stages in order
-const PIPELINE_STAGES = [
-  'story_bible', 'character_bios', 'asset_registry',
-  'episode_map', 'episodes', 'image_gen', 'video_gen',
-]
-const STAGE_LABEL: Record<string, string> = {
-  story_bible:    '故事圣经',
-  character_bios: '角色小传',
-  asset_registry: '资产登记',
-  episode_map:    '集数大纲',
-  episodes:       '逐集剧本',
-  image_gen:      '生图',
-  video_gen:      '视频',
 }
 
 interface DashboardData {
@@ -49,23 +59,41 @@ interface DashboardData {
   }>
 }
 
-import type { DbAsset } from './types/asset'
-import { TYPE_LABEL, TYPE_COLOR } from './types/asset'
-
-function authHeaders() {
-  const token = localStorage.getItem('auth_token')
-  return token ? { Authorization: `Bearer ${token}` } : {}
-}
-
 interface Props {
   onOpen: (p: { id: string; name: string }) => void
   username?: string
   onLogout?: () => void
 }
 
+const PIPELINE_STAGES = [
+  'story_bible', 'character_bios', 'asset_registry',
+  'episode_map', 'episodes', 'image_gen', 'video_gen',
+]
+
+const STAGE_LABEL: Record<string, string> = {
+  story_bible:    '故事圣经',
+  character_bios: '角色小传',
+  asset_registry: '资产登记',
+  episode_map:    '集数大纲',
+  episodes:       '逐集剧本',
+  image_gen:      '生图',
+  video_gen:      '视频',
+}
+
+const TYPE_ACCENT: Record<DbAsset['type'], string> = {
+  CHARACTER: '#63B3ED',
+  SCENE: '#68D391',
+  PROP: '#F6AD55',
+}
+
+function authHeaders() {
+  const token = localStorage.getItem('auth_token')
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
 function fmtNum(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000)     return `${(n / 1_000).toFixed(0)}K`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`
   return String(n)
 }
 
@@ -82,77 +110,92 @@ function timeAgo(iso: string) {
 export default function ProjectHome({ onOpen, username, onLogout }: Props) {
   const { theme, T, toggle } = useTheme()
   const [projects, setProjects] = useState<ProjectMeta[]>([])
-  const [creating, setCreating] = useState(false)
-  const [newName,  setNewName]  = useState('')
-  const [loading,  setLoading]  = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
-  const [editingId,   setEditingId]   = useState<string | null>(null)
-  const [editingName, setEditingName] = useState('')
-  const editInputRef = useRef<HTMLInputElement>(null)
-  const [hoveredId,   setHoveredId]   = useState<string | null>(null)
-
-  // ── Dashboard ─────────────────────────────────────────────────
   const [dashboard, setDashboard] = useState<DashboardData | null>(null)
-  const loadDashboard = useCallback(async () => {
-    try {
-      const { data } = await axios.get<DashboardData>('/api/dashboard', { headers: authHeaders() })
-      setDashboard(data)
-    } catch { /* non-critical */ }
-  }, [])
+  const [globalAssets, setGlobalAssets] = useState<DbAsset[]>([])
+  const [previewAsset, setPreviewAsset] = useState<DbAsset | null>(null)
+  const [assetFilter, setAssetFilter] = useState<DbAsset['type'] | 'ALL'>('ALL')
+  const [search, setSearch] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingName, setEditingName] = useState('')
+  const [hoveredId, setHoveredId] = useState<string | null>(null)
+  const [copiedPrompt, setCopiedPrompt] = useState(false)
+  const [promotingId, setPromotingId] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const editInputRef = useRef<HTMLInputElement>(null)
 
-  // ── 资产库 ────────────────────────────────────────────────────
-  const [globalAssets,  setGlobalAssets]  = useState<DbAsset[]>([])
-  const [recentAssets,  setRecentAssets]  = useState<DbAsset[]>([])
-  const [previewAsset,  setPreviewAsset]  = useState<DbAsset | null>(null)
-  const [assetFilter,   setAssetFilter]   = useState<DbAsset['type'] | 'ALL'>('ALL')
-  const [copiedPrompt,  setCopiedPrompt]  = useState(false)
-  const [promotingId,   setPromotingId]   = useState<string | null>(null)
+  const cardBg = theme === 'dark' ? 'rgba(22,24,28,0.72)' : 'rgba(255,255,255,0.78)'
+  const pageBg = theme === 'dark'
+    ? 'radial-gradient(circle at 20% 0%, rgba(201,152,42,0.12), transparent 30%), linear-gradient(135deg, #08090B 0%, #111316 48%, #0B0D10 100%)'
+    : 'linear-gradient(135deg, #F4F1EA 0%, #ECE8DD 55%, #F8F6EF 100%)'
 
   const loadAssets = useCallback(async () => {
     try {
-      const headers = authHeaders()
-      const [globalRes, recentRes] = await Promise.all([
-        axios.get('/api/assets?projectId=__global__', { headers }),
-        // fetch all project IDs then load their assets — simplified: just load global for now
-        // Recent = last 12 assets across all user projects (approximated by createdAt)
-        axios.get('/api/assets?projectId=__global__', { headers }),
-      ])
-      setGlobalAssets(globalRes.data)
-      setRecentAssets([]) // populated incrementally below
-    } catch { /* non-critical */ }
+      const { data } = await axios.get('/api/assets?projectId=__global__', { headers: authHeaders() })
+      setGlobalAssets(data)
+    } catch {
+      setGlobalAssets([])
+    }
   }, [])
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const [projRes, dashRes] = await Promise.allSettled([
       axios.get('/api/projects', { headers: authHeaders() }),
       axios.get<DashboardData>('/api/dashboard', { headers: authHeaders() }),
     ])
-    const projects: ProjectMeta[] = projRes.status === 'fulfilled' ? projRes.value.data : []
+    const list: ProjectMeta[] = projRes.status === 'fulfilled' ? projRes.value.data : []
     if (dashRes.status === 'fulfilled') {
       setDashboard(dashRes.value.data)
       const byId = Object.fromEntries(dashRes.value.data.projects.map(p => [p.id, p]))
-      setProjects(projects.map(p => ({
+      setProjects(list.map(p => ({
         ...p,
-        pipelineStage:    byId[p.id]?.pipelineStage,
-        memberCount:      byId[p.id]?.memberCount,
-        stagesCompleted:  byId[p.id]?.stagesCompleted,
+        pipelineStage: byId[p.id]?.pipelineStage || p.pipelineStage,
+        memberCount: byId[p.id]?.memberCount || p.memberCount,
+        stagesCompleted: byId[p.id]?.stagesCompleted || p.stagesCompleted,
       })))
     } else {
-      setProjects(projects)
+      setProjects(list)
     }
-  }
+  }, [])
 
   useEffect(() => {
     load()
     loadAssets()
-  }, [])
-  useEffect(() => { if (creating) setTimeout(() => inputRef.current?.focus(), 40) }, [creating])
+  }, [load, loadAssets])
+
+  useEffect(() => {
+    if (creating) setTimeout(() => inputRef.current?.focus(), 40)
+  }, [creating])
+
+  const filteredProjects = useMemo(() => {
+    const key = search.trim().toLowerCase()
+    if (!key) return projects
+    return projects.filter(p => p.name.toLowerCase().includes(key))
+  }, [projects, search])
+
+  const filteredAssets = useMemo(() => {
+    return globalAssets
+      .filter(a => assetFilter === 'ALL' || a.type === assetFilter)
+      .slice(0, 8)
+  }, [globalAssets, assetFilter])
+
+  const activeProjects = dashboard?.projects
+    ?.slice()
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    .slice(0, 5) || []
 
   const handleCreate = async () => {
     setLoading(true)
-    const { data } = await axios.post('/api/projects', { name: newName.trim() || '未命名项目' }, { headers: authHeaders() })
-    setLoading(false); setCreating(false); setNewName('')
-    onOpen({ id: data.id, name: data.name })
+    try {
+      const { data } = await axios.post('/api/projects', { name: newName.trim() || '未命名项目' }, { headers: authHeaders() })
+      setCreating(false)
+      setNewName('')
+      onOpen({ id: data.id, name: data.name })
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleDelete = async (e: React.MouseEvent, id: string) => {
@@ -166,7 +209,10 @@ export default function ProjectHome({ onOpen, username, onLogout }: Props) {
     e.stopPropagation()
     setEditingId(p.id)
     setEditingName(p.name)
-    setTimeout(() => { editInputRef.current?.focus(); editInputRef.current?.select() }, 40)
+    setTimeout(() => {
+      editInputRef.current?.focus()
+      editInputRef.current?.select()
+    }, 40)
   }
 
   const commitEdit = async (id: string) => {
@@ -178,7 +224,6 @@ export default function ProjectHome({ onOpen, username, onLogout }: Props) {
     setEditingId(null)
   }
 
-  // 把项目级资产提升到全局库
   const promoteToGlobal = async (asset: DbAsset) => {
     if (promotingId) return
     setPromotingId(asset.id)
@@ -193,513 +238,803 @@ export default function ProjectHome({ onOpen, username, onLogout }: Props) {
         tags: asset.tags,
       }, { headers: authHeaders() })
       await loadAssets()
-    } catch { /* ignore */ } finally {
+    } finally {
       setPromotingId(null)
     }
   }
 
   const copyPrompt = async (prompt: string) => {
-    try { await navigator.clipboard.writeText(prompt); setCopiedPrompt(true); setTimeout(() => setCopiedPrompt(false), 1500) } catch {}
+    try {
+      await navigator.clipboard.writeText(prompt)
+      setCopiedPrompt(true)
+      setTimeout(() => setCopiedPrompt(false), 1500)
+    } catch {}
   }
 
-  const topbarBtnStyle: React.CSSProperties = {
-    fontSize: 13,
-    padding: '6px 14px',
-    borderRadius: 999,
-    background: T.nodeSubtle,
+  const metricItems = [
+    { label: '项目', value: dashboard?.global.totalProjects ?? projects.length, icon: FolderKanban },
+    { label: '资产', value: dashboard?.global.totalAssets ?? globalAssets.length, icon: Boxes },
+    { label: '图片', value: dashboard?.global.totalImages ?? 0, icon: Image },
+    { label: 'Token', value: fmtNum(dashboard?.global.totalTokens ?? 0), icon: Database },
+    { label: '费用', value: `¥${(dashboard?.global.estimatedCost ?? 0).toFixed(2)}`, icon: Coins },
+  ]
+
+  const iconButton: CSSProperties = {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
     border: `1px solid ${T.border}`,
-    cursor: 'pointer',
+    background: T.nodeSubtle,
     color: T.textSub,
-    transition: 'all 0.15s',
-    whiteSpace: 'nowrap',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
   }
 
   return (
     <div style={{
-      minHeight: '100vh',
-      background: T.canvasBg,
-      color: T.text,
+      width: '100vw',
+      height: '100vh',
       display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      overflowY: 'auto',
+      overflow: 'hidden',
+      background: pageBg,
+      color: T.text,
     }}>
-
-      {/* ── 顶栏 ─────────────────────────────── */}
-      <div style={{
-        width: '100%',
+      <aside style={{
+        width: 238,
+        flexShrink: 0,
+        borderRight: `1px solid ${T.border}`,
+        background: theme === 'dark' ? 'rgba(6,8,11,0.78)' : 'rgba(255,255,255,0.52)',
+        backdropFilter: 'blur(22px)',
         display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '14px 36px',
-        borderBottom: `1px solid ${T.border}`,
-        backdropFilter: 'blur(20px)',
-        position: 'sticky',
-        top: 0,
-        zIndex: 10,
-        background: T.headerBg,
+        flexDirection: 'column',
+        padding: 18,
       }}>
-        {/* Logo */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 28 }}>
           <div style={{
-            width: 30, height: 30,
-            borderRadius: 8,
-            background: `rgba(201,152,42,0.12)`,
-            border: `1px solid rgba(201,152,42,0.2)`,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: 34,
+            height: 34,
+            borderRadius: 9,
+            background: 'rgba(201,152,42,0.14)',
+            border: '1px solid rgba(201,152,42,0.28)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
           }}>
             <img src="/logo.svg" style={{ width: 18, height: 18 }} />
           </div>
-          <span style={{ fontSize: 15, fontWeight: 700, color: T.text, letterSpacing: '-0.01em' }}>壹镜</span>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 800, lineHeight: 1.1 }}>壹镜</div>
+            <div style={{ fontSize: 10, color: T.textMuted, marginTop: 3 }}>AIGC Studio</div>
+          </div>
         </div>
 
-        {/* Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button onClick={toggle} className="btn-pill" style={topbarBtnStyle}>
-            {theme === 'dark' ? '◑ 浅色' : '◑ 深色'}
-          </button>
-          {username && (
-            <div style={{
-              fontSize: 13, fontWeight: 500, color: T.textSub,
-              padding: '6px 14px', borderRadius: 999,
-              background: T.nodeSubtle, border: `1px solid ${T.border}`,
-            }}>
-              {username}
-            </div>
-          )}
-          {onLogout && (
-            <button onClick={onLogout} className="btn-pill" style={topbarBtnStyle}>
-              退出 →
-            </button>
-          )}
-        </div>
-      </div>
+        <nav style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {[
+            { label: '生产总览', icon: LayoutDashboard, active: true },
+            { label: '项目队列', icon: FolderKanban },
+            { label: '剧本流水线', icon: FileText },
+            { label: '视觉资产', icon: Palette },
+            { label: '视频交付', icon: Video },
+          ].map(item => {
+            const Icon = item.icon
+            return (
+              <button key={item.label} style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                width: '100%',
+                padding: '10px 11px',
+                borderRadius: 8,
+                border: item.active ? '1px solid rgba(201,152,42,0.28)' : '1px solid transparent',
+                background: item.active ? 'rgba(201,152,42,0.12)' : 'transparent',
+                color: item.active ? T.text : T.textSub,
+                fontSize: 13,
+                cursor: 'default',
+              }}>
+                <Icon size={16} />
+                {item.label}
+              </button>
+            )
+          })}
+        </nav>
 
-      {/* ── 统计条 ──────────────────────────── */}
-      {dashboard?.global && (
-        <div style={{
-          width: '100%',
-          background: theme === 'dark' ? 'rgba(201,152,42,0.04)' : 'rgba(184,135,14,0.03)',
-          borderBottom: `1px solid ${T.border}`,
-          display: 'flex', justifyContent: 'center',
-        }}>
+        <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{
-            maxWidth: 900, width: '100%',
-            padding: '10px 32px',
-            display: 'flex', gap: 32, alignItems: 'center',
+            border: `1px solid ${T.border}`,
+            background: T.nodeSubtle,
+            borderRadius: 10,
+            padding: 12,
           }}>
-            {[
-              { label: '项目', value: dashboard.global.totalProjects, icon: '📁' },
-              { label: '资产', value: dashboard.global.totalAssets,   icon: '🗃️' },
-              { label: '图片', value: dashboard.global.totalImages,   icon: '🖼️' },
-              { label: 'Token', value: fmtNum(dashboard.global.totalTokens), icon: '⚡' },
-              { label: '费用', value: `¥${dashboard.global.estimatedCost.toFixed(2)}`, icon: '💰' },
-            ].map(item => (
-              <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 12, opacity: 0.6 }}>{item.icon}</span>
-                <span style={{ fontSize: 20, fontWeight: 700, color: T.text, lineHeight: 1 }}>
-                  {item.value}
-                </span>
-                <span style={{ fontSize: 10, color: T.textMuted, marginTop: 4 }}>{item.label}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: T.text }}>
+              <Sparkles size={15} color={T.accent} />
+              <span style={{ fontSize: 12, fontWeight: 700 }}>生产状态</span>
+            </div>
+            <p style={{ fontSize: 11, color: T.textMuted, lineHeight: 1.6, marginTop: 8 }}>
+              资产、剧本和画布已接入同一项目数据层。
+            </p>
+          </div>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 9,
+            padding: '10px 4px 0',
+            borderTop: `1px solid ${T.border}`,
+          }}>
+            <div style={{
+              width: 30,
+              height: 30,
+              borderRadius: 8,
+              background: 'rgba(99,179,237,0.14)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: T.text,
+              fontSize: 12,
+              fontWeight: 800,
+            }}>
+              {(username || 'U').slice(0, 1).toUpperCase()}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12, color: T.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {username || '用户'}
               </div>
-            ))}
+              <div style={{ fontSize: 10, color: T.textMuted, marginTop: 2 }}>工作台成员</div>
+            </div>
           </div>
         </div>
-      )}
+      </aside>
 
-      {/* ── 主内容 ───────────────────────────── */}
-      <div style={{
-        width: '100%',
-        maxWidth: 900,
-        padding: '56px 32px 80px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 0,
-      }}>
-
-        {/* Hero */}
-        <div className="animate-fadeIn" style={{ marginBottom: 40 }}>
-          <h1 style={{
-            fontSize: 36,
-            fontWeight: 700,
-            color: T.text,
-            letterSpacing: '-0.025em',
-            lineHeight: 1.15,
-          }}>项目</h1>
-          <p style={{ marginTop: 8, fontSize: 14, color: T.textSub }}>
-            选择项目继续创作，或开始一个新项目
-          </p>
-        </div>
-
-        {/* 新建按钮 / 输入框 */}
-        {!creating ? (
-          <button
-            onClick={() => setCreating(true)}
-            className="btn-pill"
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 8,
-              padding: '10px 18px', borderRadius: 10,
-              background: T.nodeSubtle,
-              border: `1px solid ${T.borderMid}`,
-              color: T.text, fontSize: 14, fontWeight: 500, cursor: 'pointer',
-              width: 'fit-content',
-            }}
-          >
-            <span style={{
-              width: 18, height: 18,
-              borderRadius: 5,
-              background: `rgba(201,152,42,0.15)`,
-              border: `1px solid rgba(201,152,42,0.25)`,
-              color: T.accent,
-              fontSize: 14, fontWeight: 400,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1,
-              flexShrink: 0,
-            }}>+</span>
-            新建项目
-          </button>
-        ) : (
-          <div className="animate-fadeIn" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <input
-              ref={inputRef}
-              value={newName}
-              onChange={e => setNewName(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') handleCreate()
-                if (e.key === 'Escape') { setCreating(false); setNewName('') }
-              }}
-              placeholder="项目名称"
-              style={{
-                padding: '9px 13px', borderRadius: 9, fontSize: 14,
-                background: T.inputBg,
-                border: `1px solid ${T.borderMid}`,
-                color: T.text, outline: 'none', width: 220,
-              }}
-            />
-            <button
-              onClick={handleCreate}
-              disabled={loading}
-              className="btn-pill"
-              style={{
-                padding: '9px 16px', borderRadius: 9, fontSize: 13, fontWeight: 600,
-                background: T.accent, color: theme === 'dark' ? '#0D0B08' : '#fff',
-                border: 'none', cursor: 'pointer',
-                boxShadow: `0 4px 16px rgba(201,152,42,0.25)`,
-              }}
-            >{loading ? '创建中' : '创建'}</button>
-            <button
-              onClick={() => { setCreating(false); setNewName('') }}
-              className="btn-pill"
-              style={{
-                padding: '9px 14px', borderRadius: 9, fontSize: 13,
-                background: T.nodeSubtle, border: `1px solid ${T.border}`,
-                color: T.textSub, cursor: 'pointer',
-              }}
-            >取消</button>
-          </div>
-        )}
-
-        {/* 项目列表 */}
-        {projects.length > 0 && (
-          <>
-            <div style={{ height: 1, background: T.border, margin: '32px 0 24px' }} />
-            <p style={{
-              fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em',
-              color: T.textMuted, marginBottom: 16, fontWeight: 600,
-            }}>最近</p>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
-              {projects.map((p, i) => (
-                <div
-                  key={p.id}
-                  onClick={() => onOpen({ id: p.id, name: p.name })}
-                  className="btn-pill"
-                  style={{
-                    display: 'flex', flexDirection: 'column',
-                    borderRadius: 12, cursor: 'pointer',
-                    background: T.nodeBg,
-                    border: `1px solid ${hoveredId === p.id ? T.borderMid : T.border}`,
-                    overflow: 'hidden',
-                    animation: `slideInUp 0.28s ease ${i * 0.04}s both`,
-                  }}
-                  onMouseEnter={() => setHoveredId(p.id)}
-                  onMouseLeave={() => setHoveredId(null)}
-                >
-                  {/* 预览区 */}
-                  <div style={{
-                    height: 80,
-                    background: hoveredId === p.id
-                      ? `linear-gradient(135deg, rgba(201,152,42,0.08) 0%, rgba(201,152,42,0.03) 100%)`
-                      : T.nodeSubtle,
-                    borderBottom: `1px solid ${T.border}`,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    transition: 'background 0.2s',
-                  }}>
-                    <span style={{ fontSize: 22, opacity: hoveredId === p.id ? 0.3 : 0.12, transition: 'opacity 0.2s' }}>⊕</span>
-                  </div>
-
-                  {/* 信息区 */}
-                  <div style={{ padding: '12px 14px 10px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    {editingId === p.id ? (
-                      <input
-                        ref={editInputRef}
-                        value={editingName}
-                        onChange={e => setEditingName(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') commitEdit(p.id)
-                          if (e.key === 'Escape') setEditingId(null)
-                        }}
-                        onBlur={() => commitEdit(p.id)}
-                        onClick={e => e.stopPropagation()}
-                        style={{
-                          fontSize: 13, fontWeight: 500, color: T.text,
-                          background: T.inputBg, border: `1px solid ${T.borderMid}`,
-                          borderRadius: 5, padding: '2px 7px', outline: 'none', width: '100%',
-                        }}
-                      />
-                    ) : (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <span style={{
-                          fontSize: 13, fontWeight: 600, color: T.text,
-                          flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                        }}>{p.name}</span>
-                        <button
-                          onClick={e => startEdit(e, p)}
-                          style={{
-                            opacity: hoveredId === p.id ? 0.7 : 0,
-                            padding: '1px 5px', background: 'none', border: 'none',
-                            color: T.textSub, cursor: 'pointer', fontSize: 11, borderRadius: 4,
-                            flexShrink: 0, transition: 'opacity 0.15s',
-                          }}
-                          title="重命名"
-                        >✎</button>
-                      </div>
-                    )}
-                    {/* Pipeline progress bar */}
-                    {(p.stagesCompleted || p.pipelineStage) && (
-                      <PipelineProgress
-                        stage={p.pipelineStage || ''}
-                        completed={p.stagesCompleted || []}
-                        T={T}
-                      />
-                    )}
-
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 }}>
-                      <span style={{ fontSize: 11, color: T.textMuted }}>
-                        {p.nodeCount} 节点
-                        {p.memberCount && p.memberCount > 1 ? ` · 👥 ${p.memberCount}` : ''}
-                        {' · '}{timeAgo(p.updatedAt)}
-                      </span>
-                      <button
-                        onClick={e => handleDelete(e, p.id)}
-                        style={{
-                          padding: '2px 6px', borderRadius: 4,
-                          background: 'transparent', border: 'none',
-                          fontSize: 10, color: 'rgba(255,80,60,0.45)', cursor: 'pointer',
-                          opacity: hoveredId === p.id ? 1 : 0,
-                          transition: 'opacity 0.15s, color 0.15s',
-                        }}
-                        onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,80,60,0.85)')}
-                        onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,80,60,0.45)')}
-                      >删除</button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-
-        {projects.length === 0 && !creating && (
-          <p style={{ marginTop: 48, fontSize: 13, color: T.textMuted }}>还没有项目</p>
-        )}
-
-        {/* ── 全局资产库 ─────────────────────────────── */}
-        {globalAssets.length > 0 && (
-          <>
-            <div style={{ height: 1, background: T.border, margin: '48px 0 28px' }} />
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <div>
-                <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: T.textMuted, fontWeight: 600, marginBottom: 4 }}>全局资产库</p>
-                <p style={{ fontSize: 12, color: T.textSub }}>跨项目可复用资产 · {globalAssets.length} 项</p>
+      <main style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
+        <div style={{ maxWidth: 1320, margin: '0 auto', padding: '24px 28px 56px' }}>
+          <header style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 16,
+            justifyContent: 'space-between',
+            marginBottom: 22,
+          }}>
+            <div>
+              <div style={{ fontSize: 11, color: T.textMuted, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>
+                Production Command
               </div>
-              {/* 类型筛选 */}
-              <div style={{ display: 'flex', gap: 6 }}>
-                {(['ALL', 'CHARACTER', 'SCENE', 'PROP'] as const).map(f => (
-                  <button
-                    key={f}
-                    onClick={() => setAssetFilter(f)}
-                    style={{
-                      padding: '4px 10px', borderRadius: 6, fontSize: 11, cursor: 'pointer',
-                      background: assetFilter === f ? T.btnBg : T.nodeSubtle,
-                      border: assetFilter === f ? 'none' : `1px solid ${T.border}`,
-                      color: assetFilter === f ? T.btnText : T.textSub,
-                    }}
-                  >{f === 'ALL' ? '全部' : TYPE_LABEL[f]}</button>
-                ))}
-              </div>
+              <h1 style={{ fontSize: 30, lineHeight: 1.15, marginTop: 7, fontWeight: 800, letterSpacing: '-0.02em' }}>
+                项目生产中控台
+              </h1>
             </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
-              {globalAssets
-                .filter(a => assetFilter === 'ALL' || a.type === assetFilter)
-                .map(asset => (
-                  <div
-                    key={asset.id}
-                    onClick={() => setPreviewAsset(asset)}
-                    style={{
-                      borderRadius: 10, border: `1px solid ${T.border}`,
-                      background: T.nodeBg, cursor: 'pointer', overflow: 'hidden',
-                      transition: 'border-color 0.15s, transform 0.15s',
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.borderColor = T.borderMid; e.currentTarget.style.transform = 'translateY(-2px)' }}
-                    onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.transform = 'none' }}
-                  >
-                    {/* 图片 / 占位 */}
-                    <div style={{
-                      height: 100, background: asset.imageUrl ? 'transparent' : TYPE_COLOR[asset.type],
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-                    }}>
-                      {asset.imageUrl
-                        ? <img src={asset.imageUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                        : <span style={{ fontSize: 28, opacity: 0.25 }}>{asset.type === 'CHARACTER' ? '👤' : asset.type === 'SCENE' ? '🏞' : '📦'}</span>
-                      }
-                    </div>
-                    {/* 信息 */}
-                    <div style={{ padding: '8px 10px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
-                        <span style={{
-                          fontSize: 9, fontWeight: 600, padding: '1px 5px', borderRadius: 3,
-                          background: TYPE_COLOR[asset.type], color: T.textSub, letterSpacing: '0.04em',
-                        }}>{TYPE_LABEL[asset.type]}</span>
-                      </div>
-                      <div style={{ fontSize: 12, fontWeight: 500, color: T.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{asset.name}</div>
-                      {asset.description && (
-                        <div style={{ fontSize: 11, color: T.textMuted, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{asset.description}</div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* ── 资产预览 Modal ──────────────────────────── */}
-      {previewAsset && (
-        <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
-          onClick={() => setPreviewAsset(null)}
-        >
-          <div
-            style={{ width: 520, maxHeight: '80vh', borderRadius: 16, background: T.nodeBg, border: `1px solid ${T.borderMid}`, overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 80px rgba(0,0,0,0.4)' }}
-            onClick={e => e.stopPropagation()}
-          >
-            {/* Modal 头 */}
-            <div style={{ padding: '16px 20px', borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 4, background: TYPE_COLOR[previewAsset.type], color: T.textSub }}>
-                {TYPE_LABEL[previewAsset.type]}
-              </span>
-              <span style={{ flex: 1, fontSize: 15, fontWeight: 600, color: T.text }}>{previewAsset.name}</span>
-              <button onClick={() => setPreviewAsset(null)} style={{ background: 'none', border: 'none', color: T.textMuted, fontSize: 18, cursor: 'pointer', padding: '0 4px', lineHeight: 1 }}>×</button>
-            </div>
-
-            <div style={{ overflow: 'auto', flex: 1 }}>
-              {/* 图片 */}
-              {previewAsset.imageUrl && (
-                <div style={{ background: T.nodeSubtle, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-                  <img src={previewAsset.imageUrl} style={{ maxWidth: '100%', maxHeight: 240, borderRadius: 8, objectFit: 'contain' }} />
-                </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button onClick={toggle} title="切换主题" style={iconButton}>
+                {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+              </button>
+              {onLogout && (
+                <button onClick={onLogout} style={{ ...iconButton, width: 'auto', padding: '0 12px', gap: 7 }}>
+                  <LogOut size={15} />
+                  <span style={{ fontSize: 12 }}>退出</span>
+                </button>
               )}
-
-              {/* 描述 + Prompt */}
-              <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {previewAsset.description && (
-                  <div>
-                    <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4, fontWeight: 500 }}>外观描述</div>
-                    <div style={{ fontSize: 13, color: T.text, lineHeight: 1.6 }}>{previewAsset.description}</div>
-                  </div>
-                )}
-
-                <div>
-                  <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4, fontWeight: 500 }}>生图 Prompt</div>
-                  <div style={{
-                    padding: '10px 12px', borderRadius: 7,
-                    background: T.nodeSubtle, border: `1px solid ${T.border}`,
-                    fontSize: 11, lineHeight: 1.7, color: T.textSub,
-                    wordBreak: 'break-word', maxHeight: 140, overflow: 'auto',
-                  }}>
-                    {previewAsset.prompt || '（暂无 prompt）'}
-                  </div>
-                </div>
-
-                {previewAsset.usedInProjects.length > 0 && (
-                  <div style={{ fontSize: 11, color: T.textMuted }}>
-                    已用于 {previewAsset.usedInProjects.length} 个项目
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Modal 底部操作 */}
-            <div style={{ padding: '12px 20px', borderTop: `1px solid ${T.border}`, display: 'flex', gap: 8 }}>
               <button
-                onClick={() => copyPrompt(previewAsset.prompt)}
-                style={{ flex: 1, padding: '8px 0', borderRadius: 7, fontSize: 12, fontWeight: 500, background: copiedPrompt ? T.btnBg : T.nodeSubtle, border: copiedPrompt ? 'none' : `1px solid ${T.border}`, color: copiedPrompt ? T.btnText : T.textSub, cursor: 'pointer' }}
-              >{copiedPrompt ? '已复制 ✓' : '复制 Prompt'}</button>
-              {previewAsset.projectId !== '__global__' && (
-                <button
-                  onClick={() => promoteToGlobal(previewAsset)}
-                  disabled={!!promotingId}
-                  style={{ flex: 1, padding: '8px 0', borderRadius: 7, fontSize: 12, fontWeight: 600, background: T.btnBg, border: 'none', color: T.btnText, cursor: promotingId ? 'not-allowed' : 'pointer', opacity: promotingId ? 0.6 : 1 }}
-                >{promotingId === previewAsset.id ? '提升中...' : '加入全局库'}</button>
-              )}
+                onClick={() => setCreating(true)}
+                style={{
+                  height: 36,
+                  padding: '0 15px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: T.btnBg,
+                  color: T.btnText,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  fontSize: 13,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  boxShadow: '0 10px 26px rgba(201,152,42,0.22)',
+                }}
+              >
+                <Plus size={16} />
+                新建项目
+              </button>
             </div>
-          </div>
+          </header>
+
+          <section style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(120px, 1fr))', gap: 12, marginBottom: 18 }}>
+            {metricItems.map(item => {
+              const Icon = item.icon
+              return (
+                <div key={item.label} style={{
+                  minHeight: 98,
+                  borderRadius: 10,
+                  border: `1px solid ${T.border}`,
+                  background: cardBg,
+                  padding: 15,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  boxShadow: theme === 'dark' ? '0 18px 44px rgba(0,0,0,0.2)' : '0 18px 44px rgba(88,72,34,0.08)',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: 11, color: T.textMuted, fontWeight: 700 }}>{item.label}</span>
+                    <Icon size={16} color={T.accent} />
+                  </div>
+                  <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: '-0.02em' }}>{item.value}</div>
+                </div>
+              )
+            })}
+          </section>
+
+          {creating && (
+            <section style={{
+              border: `1px solid ${T.borderMid}`,
+              background: cardBg,
+              borderRadius: 10,
+              padding: 14,
+              display: 'flex',
+              gap: 10,
+              alignItems: 'center',
+              marginBottom: 18,
+            }}>
+              <input
+                ref={inputRef}
+                value={newName}
+                onChange={e => setNewName(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') handleCreate()
+                  if (e.key === 'Escape') {
+                    setCreating(false)
+                    setNewName('')
+                  }
+                }}
+                placeholder="输入项目名称"
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  height: 38,
+                  borderRadius: 8,
+                  border: `1px solid ${T.border}`,
+                  background: T.inputBg,
+                  color: T.text,
+                  outline: 'none',
+                  padding: '0 12px',
+                  fontSize: 13,
+                }}
+              />
+              <button onClick={handleCreate} disabled={loading} style={{
+                height: 38,
+                padding: '0 16px',
+                borderRadius: 8,
+                border: 'none',
+                background: T.btnBg,
+                color: T.btnText,
+                fontSize: 13,
+                fontWeight: 800,
+                cursor: loading ? 'not-allowed' : 'pointer',
+                opacity: loading ? 0.65 : 1,
+              }}>
+                {loading ? '创建中' : '创建'}
+              </button>
+              <button onClick={() => { setCreating(false); setNewName('') }} style={{
+                height: 38,
+                padding: '0 14px',
+                borderRadius: 8,
+                border: `1px solid ${T.border}`,
+                background: T.nodeSubtle,
+                color: T.textSub,
+                fontSize: 13,
+                cursor: 'pointer',
+              }}>
+                取消
+              </button>
+            </section>
+          )}
+
+          <section style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.7fr) minmax(340px, 0.9fr)', gap: 16 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <PanelCard title="项目队列" eyebrow="Projects" T={T} cardBg={cardBg} action={
+                <div style={{
+                  height: 34,
+                  minWidth: 220,
+                  borderRadius: 8,
+                  border: `1px solid ${T.border}`,
+                  background: T.inputBg,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '0 10px',
+                }}>
+                  <Search size={15} color={T.textMuted} />
+                  <input
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    placeholder="搜索项目"
+                    style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none', color: T.text, fontSize: 12 }}
+                  />
+                </div>
+              }>
+                {filteredProjects.length > 0 ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
+                    {filteredProjects.map((p, i) => (
+                      <ProjectCard
+                        key={p.id}
+                        project={p}
+                        index={i}
+                        hovered={hoveredId === p.id}
+                        editing={editingId === p.id}
+                        editingName={editingName}
+                        editInputRef={editInputRef}
+                        T={T}
+                        theme={theme}
+                        onHover={setHoveredId}
+                        onOpen={onOpen}
+                        onStartEdit={startEdit}
+                        onCommitEdit={commitEdit}
+                        onEditName={setEditingName}
+                        onDelete={handleDelete}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyState T={T} />
+                )}
+              </PanelCard>
+
+              <PanelCard title="全局资产速览" eyebrow="Assets" T={T} cardBg={cardBg} action={
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {(['ALL', 'CHARACTER', 'SCENE', 'PROP'] as const).map(f => (
+                    <button key={f} onClick={() => setAssetFilter(f)} style={{
+                      height: 28,
+                      padding: '0 9px',
+                      borderRadius: 7,
+                      border: `1px solid ${assetFilter === f ? 'rgba(201,152,42,0.44)' : T.border}`,
+                      background: assetFilter === f ? 'rgba(201,152,42,0.12)' : T.nodeSubtle,
+                      color: assetFilter === f ? T.text : T.textSub,
+                      fontSize: 11,
+                      cursor: 'pointer',
+                    }}>
+                      {f === 'ALL' ? '全部' : TYPE_LABEL[f]}
+                    </button>
+                  ))}
+                </div>
+              }>
+                {filteredAssets.length > 0 ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
+                    {filteredAssets.map(asset => (
+                      <AssetTile key={asset.id} asset={asset} T={T} onClick={() => setPreviewAsset(asset)} />
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ padding: '30px 0', textAlign: 'center', color: T.textMuted, fontSize: 12 }}>暂无全局资产</div>
+                )}
+              </PanelCard>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <PanelCard title="生产流" eyebrow="Pipeline" T={T} cardBg={cardBg}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {activeProjects.length > 0 ? activeProjects.map(item => (
+                    <div key={item.id} style={{
+                      border: `1px solid ${T.border}`,
+                      background: T.nodeSubtle,
+                      borderRadius: 9,
+                      padding: 12,
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 750, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</div>
+                          <div style={{ fontSize: 11, color: T.textMuted, marginTop: 4 }}>
+                            {STAGE_LABEL[item.pipelineStage] || item.pipelineStage || '未开始'} · {timeAgo(item.updatedAt)}
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: T.textSub, fontSize: 11 }}>
+                          <Users size={13} />
+                          {item.memberCount || 1}
+                        </div>
+                      </div>
+                      <PipelineProgress stage={item.pipelineStage || ''} completed={item.stagesCompleted || []} T={T} />
+                    </div>
+                  )) : (
+                    <div style={{ padding: '22px 0', textAlign: 'center', color: T.textMuted, fontSize: 12 }}>还没有生产记录</div>
+                  )}
+                </div>
+              </PanelCard>
+
+              <PanelCard title="下一步" eyebrow="Next" T={T} cardBg={cardBg}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                  {[
+                    ['剧本工作台', '完成故事圣经、角色小传和资产登记'],
+                    ['资产库', '生成角色三视图和场景多角度参考'],
+                    ['画布', '把资产送入节点画布开始生图排布'],
+                  ].map(([title, desc]) => (
+                    <div key={title} style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      padding: 10,
+                      borderRadius: 8,
+                      background: T.nodeSubtle,
+                      border: `1px solid ${T.border}`,
+                    }}>
+                      <Check size={15} color={T.accent} />
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 750 }}>{title}</div>
+                        <div style={{ fontSize: 11, color: T.textMuted, marginTop: 3 }}>{desc}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </PanelCard>
+            </div>
+          </section>
         </div>
+      </main>
+
+      {previewAsset && (
+        <AssetPreview
+          asset={previewAsset}
+          T={T}
+          copiedPrompt={copiedPrompt}
+          promoting={promotingId === previewAsset.id}
+          onClose={() => setPreviewAsset(null)}
+          onCopy={() => copyPrompt(previewAsset.prompt)}
+          onPromote={() => promoteToGlobal(previewAsset)}
+        />
       )}
     </div>
   )
 }
 
-// ── PipelineProgress ─────────────────────────────────────────
+function PanelCard({ title, eyebrow, action, children, T, cardBg }: {
+  title: string
+  eyebrow: string
+  action?: React.ReactNode
+  children: React.ReactNode
+  T: any
+  cardBg: string
+}) {
+  return (
+    <section style={{
+      border: `1px solid ${T.border}`,
+      background: cardBg,
+      borderRadius: 12,
+      padding: 16,
+      boxShadow: '0 18px 44px rgba(0,0,0,0.12)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
+        <div>
+          <div style={{ fontSize: 10, color: T.textMuted, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 800 }}>{eyebrow}</div>
+          <div style={{ fontSize: 16, fontWeight: 850, marginTop: 4 }}>{title}</div>
+        </div>
+        {action}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+function ProjectCard({ project, index, hovered, editing, editingName, editInputRef, T, theme, onHover, onOpen, onStartEdit, onCommitEdit, onEditName, onDelete }: {
+  project: ProjectMeta
+  index: number
+  hovered: boolean
+  editing: boolean
+  editingName: string
+  editInputRef: React.RefObject<HTMLInputElement>
+  T: any
+  theme: string
+  onHover: (id: string | null) => void
+  onOpen: (p: { id: string; name: string }) => void
+  onStartEdit: (e: React.MouseEvent, p: ProjectMeta) => void
+  onCommitEdit: (id: string) => void
+  onEditName: (name: string) => void
+  onDelete: (e: React.MouseEvent, id: string) => void
+}) {
+  return (
+    <article
+      onClick={() => onOpen({ id: project.id, name: project.name })}
+      onMouseEnter={() => onHover(project.id)}
+      onMouseLeave={() => onHover(null)}
+      style={{
+        borderRadius: 10,
+        border: `1px solid ${hovered ? T.borderMid : T.border}`,
+        background: hovered
+          ? (theme === 'dark' ? 'rgba(30,34,40,0.92)' : 'rgba(255,255,255,0.94)')
+          : T.nodeSubtle,
+        cursor: 'pointer',
+        overflow: 'hidden',
+        animation: `slideInUp 0.24s ease ${index * 0.035}s both`,
+        transition: 'border-color 0.15s, transform 0.15s, background 0.15s',
+        transform: hovered ? 'translateY(-2px)' : 'none',
+      }}
+    >
+      <div style={{
+        height: 84,
+        borderBottom: `1px solid ${T.border}`,
+        background: 'linear-gradient(135deg, rgba(201,152,42,0.16), rgba(99,179,237,0.08), transparent)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: 14,
+      }}>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <div style={{ width: 8, height: 8, borderRadius: 99, background: 'rgba(80,200,120,0.85)' }} />
+          <span style={{ fontSize: 11, color: T.textSub }}>Live Project</span>
+        </div>
+        <ArrowRight size={18} color={hovered ? T.accent : T.textMuted} />
+      </div>
+      <div style={{ padding: 13 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {editing ? (
+            <input
+              ref={editInputRef}
+              value={editingName}
+              onChange={e => onEditName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') onCommitEdit(project.id)
+                if (e.key === 'Escape') onCommitEdit(project.id)
+              }}
+              onBlur={() => onCommitEdit(project.id)}
+              onClick={e => e.stopPropagation()}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                border: `1px solid ${T.borderMid}`,
+                background: T.inputBg,
+                color: T.text,
+                borderRadius: 6,
+                padding: '4px 7px',
+                outline: 'none',
+                fontSize: 13,
+                fontWeight: 700,
+              }}
+            />
+          ) : (
+            <div style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 800, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+              {project.name}
+            </div>
+          )}
+          <button onClick={e => onStartEdit(e, project)} title="重命名" style={{
+            width: 26,
+            height: 26,
+            borderRadius: 6,
+            border: `1px solid ${T.border}`,
+            background: T.nodeSubtle,
+            color: T.textSub,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            opacity: hovered ? 1 : 0,
+          }}>
+            <PenLine size={13} />
+          </button>
+        </div>
+
+        <PipelineProgress stage={project.pipelineStage || ''} completed={project.stagesCompleted || []} T={T} />
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: T.textMuted, fontSize: 11 }}>
+            <span>{project.nodeCount} 节点</span>
+            {project.memberCount && project.memberCount > 1 && <span>{project.memberCount} 人</span>}
+            <span>{timeAgo(project.updatedAt)}</span>
+          </div>
+          <button onClick={e => onDelete(e, project.id)} title="删除" style={{
+            width: 26,
+            height: 26,
+            borderRadius: 6,
+            border: '1px solid rgba(239,68,68,0.18)',
+            background: 'rgba(239,68,68,0.08)',
+            color: 'rgba(239,68,68,0.72)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            opacity: hovered ? 1 : 0,
+          }}>
+            <Trash2 size={13} />
+          </button>
+        </div>
+      </div>
+    </article>
+  )
+}
+
 function PipelineProgress({ stage, completed, T }: {
   stage: string
   completed: string[]
   T: any
 }) {
-  const currentIdx  = PIPELINE_STAGES.indexOf(stage)
+  const currentIdx = PIPELINE_STAGES.indexOf(stage)
   const completedSet = new Set(completed)
-
   return (
-    <div style={{ marginTop: 6, marginBottom: 2 }}>
-      <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
+    <div style={{ marginTop: 10 }}>
+      <div style={{ display: 'flex', gap: 3 }}>
         {PIPELINE_STAGES.map((s, i) => {
-          const done    = completedSet.has(s)
+          const done = completedSet.has(s)
           const current = s === stage
           return (
-            <div
-              key={s}
-              title={STAGE_LABEL[s]}
-              style={{
-                flex: 1, height: 3, borderRadius: 2,
-                background: done
-                  ? 'rgba(201,152,42,0.8)'
-                  : current
-                    ? 'rgba(201,152,42,0.4)'
-                    : i < currentIdx
-                      ? 'rgba(201,152,42,0.25)'
-                      : T.border,
-                transition: 'background 0.2s',
-              }}
-            />
+            <div key={s} title={STAGE_LABEL[s]} style={{
+              flex: 1,
+              height: 4,
+              borderRadius: 99,
+              background: done
+                ? 'rgba(201,152,42,0.86)'
+                : current
+                  ? 'rgba(201,152,42,0.42)'
+                  : i < currentIdx
+                    ? 'rgba(201,152,42,0.24)'
+                    : T.border,
+            }} />
           )
         })}
       </div>
-      {stage && (
-        <div style={{ fontSize: 10, color: T.textMuted, marginTop: 3 }}>
-          {STAGE_LABEL[stage] || stage}
-          {completed.length > 0 && ` · ${completed.length}/${PIPELINE_STAGES.length} 步完成`}
+      <div style={{ marginTop: 6, fontSize: 10, color: T.textMuted }}>
+        {STAGE_LABEL[stage] || '尚未进入流水线'}{completed.length > 0 ? ` · ${completed.length}/${PIPELINE_STAGES.length}` : ''}
+      </div>
+    </div>
+  )
+}
+
+function AssetTile({ asset, T, onClick }: { asset: DbAsset; T: any; onClick: () => void }) {
+  return (
+    <button onClick={onClick} style={{
+      border: `1px solid ${T.border}`,
+      background: T.nodeSubtle,
+      borderRadius: 9,
+      overflow: 'hidden',
+      padding: 0,
+      textAlign: 'left',
+      cursor: 'pointer',
+      color: T.text,
+    }}>
+      <div style={{
+        height: 92,
+        background: asset.imageUrl ? T.nodeSubtle : `linear-gradient(135deg, ${TYPE_ACCENT[asset.type]}33, transparent)`,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        overflow: 'hidden',
+      }}>
+        {asset.imageUrl ? (
+          <img src={asset.imageUrl} alt={asset.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        ) : (
+          <Boxes size={26} color={TYPE_ACCENT[asset.type]} />
+        )}
+      </div>
+      <div style={{ padding: 9 }}>
+        <div style={{ fontSize: 10, color: TYPE_ACCENT[asset.type], fontWeight: 800, marginBottom: 4 }}>{TYPE_LABEL[asset.type]}</div>
+        <div style={{ fontSize: 12, fontWeight: 760, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{asset.name}</div>
+        <div style={{ fontSize: 10, color: T.textMuted, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {asset.description || '暂无描述'}
         </div>
-      )}
+      </div>
+    </button>
+  )
+}
+
+function AssetPreview({ asset, T, copiedPrompt, promoting, onClose, onCopy, onPromote }: {
+  asset: DbAsset
+  T: any
+  copiedPrompt: boolean
+  promoting: boolean
+  onClose: () => void
+  onCopy: () => void
+  onPromote: () => void
+}) {
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed',
+      inset: 0,
+      zIndex: 100,
+      background: 'rgba(0,0,0,0.62)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backdropFilter: 'blur(6px)',
+      padding: 24,
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width: 'min(560px, 100%)',
+        maxHeight: '82vh',
+        overflow: 'hidden',
+        borderRadius: 12,
+        background: T.nodeBg,
+        border: `1px solid ${T.borderMid}`,
+        boxShadow: '0 28px 90px rgba(0,0,0,0.44)',
+        display: 'flex',
+        flexDirection: 'column',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '15px 18px', borderBottom: `1px solid ${T.border}` }}>
+          <span style={{ fontSize: 10, color: TYPE_ACCENT[asset.type], fontWeight: 850 }}>{TYPE_LABEL[asset.type]}</span>
+          <div style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 820, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{asset.name}</div>
+          <button onClick={onClose} style={{ border: 'none', background: 'transparent', color: T.textMuted, cursor: 'pointer', fontSize: 18 }}>x</button>
+        </div>
+        <div style={{ overflowY: 'auto' }}>
+          {asset.imageUrl && (
+            <div style={{ padding: 16, background: T.nodeSubtle }}>
+              <img src={asset.imageUrl} alt={asset.name} style={{ width: '100%', maxHeight: 260, objectFit: 'contain', borderRadius: 8 }} />
+            </div>
+          )}
+          <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <InfoBlock title="外观描述" value={asset.description || '暂无描述'} T={T} />
+            <InfoBlock title="生图 Prompt" value={asset.prompt || '暂无 prompt'} T={T} mono />
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, padding: 14, borderTop: `1px solid ${T.border}` }}>
+          <button onClick={onCopy} style={{
+            flex: 1,
+            height: 36,
+            borderRadius: 8,
+            border: `1px solid ${T.border}`,
+            background: copiedPrompt ? T.btnBg : T.nodeSubtle,
+            color: copiedPrompt ? T.btnText : T.textSub,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 8,
+            cursor: 'pointer',
+            fontSize: 12,
+            fontWeight: 800,
+          }}>
+            {copiedPrompt ? <Check size={15} /> : <Copy size={15} />}
+            {copiedPrompt ? '已复制' : '复制 Prompt'}
+          </button>
+          {asset.projectId !== '__global__' && (
+            <button onClick={onPromote} disabled={promoting} style={{
+              flex: 1,
+              height: 36,
+              borderRadius: 8,
+              border: 'none',
+              background: T.btnBg,
+              color: T.btnText,
+              cursor: promoting ? 'not-allowed' : 'pointer',
+              opacity: promoting ? 0.65 : 1,
+              fontSize: 12,
+              fontWeight: 850,
+            }}>
+              {promoting ? '处理中' : '加入全局库'}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function InfoBlock({ title, value, T, mono }: { title: string; value: string; T: any; mono?: boolean }) {
+  return (
+    <div>
+      <div style={{ fontSize: 10, color: T.textMuted, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{title}</div>
+      <div style={{
+        border: `1px solid ${T.border}`,
+        background: T.nodeSubtle,
+        borderRadius: 8,
+        padding: '9px 10px',
+        color: T.textSub,
+        fontSize: 11,
+        lineHeight: 1.7,
+        fontFamily: mono ? 'ui-monospace, SFMono-Regular, Menlo, monospace' : undefined,
+        wordBreak: 'break-word',
+      }}>
+        {value}
+      </div>
+    </div>
+  )
+}
+
+function EmptyState({ T }: { T: any }) {
+  return (
+    <div style={{
+      minHeight: 220,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 10,
+      color: T.textMuted,
+      border: `1px dashed ${T.borderMid}`,
+      borderRadius: 10,
+      background: T.nodeSubtle,
+    }}>
+      <FolderKanban size={30} />
+      <div style={{ fontSize: 13 }}>还没有项目</div>
     </div>
   )
 }
