@@ -45,6 +45,7 @@ import TextNode from './nodes/TextNode'
 import PromptAnalysisNode from './nodes/PromptAnalysisNode'
 import Gallery from './Gallery'
 import ScriptWorkbench from './ScriptWorkbench'
+import AssetLibrary from './AssetLibrary'
 
 const nodeTypes = {
   imageGen: ImageGenNode,
@@ -123,7 +124,7 @@ const SHORTCUTS = [
 interface ProjectRef { id: string; name: string }
 
 // ── 画布（需要包在 ReactFlowProvider 里） ───────────────────
-function Canvas({ project, onHome, onSwitchToWorkbench }: { project: ProjectRef; onHome: () => void; onSwitchToWorkbench: () => void }) {
+function Canvas({ project, onHome, onSwitchToWorkbench, onSwitchToAssets }: { project: ProjectRef; onHome: () => void; onSwitchToWorkbench: () => void; onSwitchToAssets: () => void }) {
   const { theme, T, toggle } = useTheme()
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
@@ -443,6 +444,7 @@ function Canvas({ project, onHome, onSwitchToWorkbench }: { project: ProjectRef;
               {[
                 { label: '剧本',   active: false,       onClick: onSwitchToWorkbench },
                 { label: '生图',   active: true,        onClick: undefined },
+                { label: '资产库', active: false,       onClick: onSwitchToAssets },
                 { label: '图片库', active: galleryOpen, onClick: () => setGalleryOpen(o => !o) },
               ].map(item => (
                 <button
@@ -574,7 +576,7 @@ function Canvas({ project, onHome, onSwitchToWorkbench }: { project: ProjectRef;
 
 type AppView =
   | { type: 'home' }
-  | { type: 'project'; project: ProjectRef; tab: 'canvas' | 'workbench' }
+  | { type: 'project'; project: ProjectRef; tab: 'canvas' | 'workbench' | 'assets' }
 
 // ── axios 全局 token 拦截器 ───────────────────────────────────
 axios.interceptors.request.use(config => {
@@ -619,7 +621,7 @@ export default function App() {
 
   if (view.type === 'project') {
     const { project, tab } = view
-    const switchTab = (newTab: 'canvas' | 'workbench') =>
+    const switchTab = (newTab: 'canvas' | 'workbench' | 'assets') =>
       setView({ type: 'project', project, tab: newTab })
 
     return (
@@ -632,6 +634,7 @@ export default function App() {
               projectName={project.name}
               onHome={() => setView({ type: 'home' })}
               onSwitchToCanvas={() => switchTab('canvas')}
+              onSwitchToAssets={() => switchTab('assets')}
             />
           </ErrorBoundary>
         </div>
@@ -643,10 +646,23 @@ export default function App() {
                 project={project}
                 onHome={() => setView({ type: 'home' })}
                 onSwitchToWorkbench={() => switchTab('workbench')}
+                onSwitchToAssets={() => switchTab('assets')}
               />
             </ReactFlowProvider>
           </ErrorBoundary>
         </div>
+        {/* 资产库 */}
+        {tab === 'assets' && (
+          <ErrorBoundary key={`assets-${project.id}`}>
+            <AssetLibrary
+              projectId={project.id}
+              projectName={project.name}
+              onHome={() => setView({ type: 'home' })}
+              onSwitchToCanvas={() => switchTab('canvas')}
+              onSwitchToWorkbench={() => switchTab('workbench')}
+            />
+          </ErrorBoundary>
+        )}
       </>
     )
   }

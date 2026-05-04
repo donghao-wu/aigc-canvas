@@ -58,6 +58,17 @@ router.patch('/:id/image', (req, res) => {
   res.json(db.findAsset(req.params.id));
 });
 
+// PATCH /api/assets/:id/dna  — update DNA + fields
+router.patch('/:id/dna', (req, res) => {
+  const asset = db.findAsset(req.params.id);
+  if (!asset) return res.status(404).json({ error: 'Asset not found' });
+  if (asset.userId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+
+  const { dna, fields } = req.body;
+  db.updateAssetDna(req.params.id, dna ?? asset.dna ?? '', fields ?? asset.fields ?? {});
+  res.json(db.findAsset(req.params.id));
+});
+
 // DELETE /api/assets/:id
 router.delete('/:id', (req, res) => {
   const asset = db.findAsset(req.params.id);
@@ -65,7 +76,61 @@ router.delete('/:id', (req, res) => {
   if (asset.userId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
 
   db.deleteAsset(req.params.id);
+  db.deletePromptsByAsset(req.params.id);
   res.json({ ok: true });
+});
+
+// ── asset_prompts sub-resource ─────────────────────────────────
+
+// GET /api/assets/:id/prompts
+router.get('/:id/prompts', (req, res) => {
+  const asset = db.findAsset(req.params.id);
+  if (!asset) return res.status(404).json({ error: 'Asset not found' });
+  res.json(db.listPromptsByAsset(req.params.id));
+});
+
+// POST /api/assets/:id/prompts  — add a multi-angle prompt row
+router.post('/:id/prompts', (req, res) => {
+  const asset = db.findAsset(req.params.id);
+  if (!asset) return res.status(404).json({ error: 'Asset not found' });
+  if (asset.userId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+
+  const { label, prompt, imageUrl } = req.body;
+  if (!label || !prompt) return res.status(400).json({ error: 'label and prompt are required' });
+
+  const id = crypto.randomUUID();
+  db.createAssetPrompt({ id, assetId: req.params.id, label, prompt, imageUrl: imageUrl || null });
+  res.json(db.listPromptsByAsset(req.params.id));
+});
+
+// PATCH /api/assets/:id/prompts/:promptId/image  — update image after generation
+router.patch('/:id/prompts/:promptId/image', (req, res) => {
+  const asset = db.findAsset(req.params.id);
+  if (!asset) return res.status(404).json({ error: 'Asset not found' });
+  if (asset.userId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+
+  const { imageUrl } = req.body;
+  if (!imageUrl) return res.status(400).json({ error: 'imageUrl is required' });
+
+  db.updatePromptImage(req.params.promptId, imageUrl);
+  res.json(db.listPromptsByAsset(req.params.id));
+});
+
+// DELETE /api/assets/:id/prompts/:promptId
+router.delete('/:id/prompts/:promptId', (req, res) => {
+  const asset = db.findAsset(req.params.id);
+  if (!asset) return res.status(404).json({ error: 'Asset not found' });
+  if (asset.userId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+
+  db.db.prepare('DELETE FROM asset_prompts WHERE id = ? AND assetId = ?').run(req.params.promptId, req.params.id);
+  res.json(db.listPromptsByAsset(req.params.id));
+});
+
+// GET /api/assets/:id  — full asset with prompts
+router.get('/:id', (req, res) => {
+  const asset = db.findAssetWithPrompts(req.params.id);
+  if (!asset) return res.status(404).json({ error: 'Asset not found' });
+  res.json(asset);
 });
 
 module.exports = router;

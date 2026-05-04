@@ -162,9 +162,10 @@ interface Props {
   projectName: string
   onHome: () => void
   onSwitchToCanvas: () => void
+  onSwitchToAssets?: () => void
 }
 
-export default function ScriptWorkbench({ projectId, projectName, onHome, onSwitchToCanvas }: Props) {
+export default function ScriptWorkbench({ projectId, projectName, onHome, onSwitchToCanvas, onSwitchToAssets }: Props) {
   const { theme, T, toggle } = useTheme()
 
   // ── 核心状态 ───────────────────────────────────────────────
@@ -538,6 +539,11 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
           <button onClick={onSwitchToCanvas} style={{ fontSize: 12, fontWeight: 400, padding: '4px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', background: 'transparent', color: T.textSub }}
             onMouseEnter={e => (e.currentTarget.style.color = T.text)}
             onMouseLeave={e => (e.currentTarget.style.color = T.textSub)}>生图</button>
+          {onSwitchToAssets && (
+            <button onClick={onSwitchToAssets} style={{ fontSize: 12, fontWeight: 400, padding: '4px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', background: 'transparent', color: T.textSub }}
+              onMouseEnter={e => (e.currentTarget.style.color = T.text)}
+              onMouseLeave={e => (e.currentTarget.style.color = T.textSub)}>资产库</button>
+          )}
         </div>
         <div style={{ flex: 1 }} />
         {busy && (

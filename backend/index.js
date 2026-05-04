@@ -374,24 +374,28 @@ app.delete('/api/upload/:filename', authMiddleware, (req, res) => {
 const PROJECTS_ROOT = path.join(__dirname, 'projects');
 if (!fs.existsSync(PROJECTS_ROOT)) fs.mkdirSync(PROJECTS_ROOT, { recursive: true });
 
-function getUserProjectsDir(userId) {
-  const dir = path.join(PROJECTS_ROOT, userId);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  return dir;
+// ── helper: check project membership ─────────────────────────────────────────
+function requireProjectAccess(projectId, userId, minRole = 'viewer') {
+  const membership = dbModule.findMembership(projectId, userId);
+  if (!membership) return false;
+  if (minRole === 'viewer') return true;
+  if (minRole === 'editor') return ['editor', 'owner'].includes(membership.role);
+  if (minRole === 'owner')  return membership.role === 'owner';
+  return false;
 }
+
+// ── Projects CRUD ─────────────────────────────────────────────────────────────
 
 app.get('/api/projects', authMiddleware, (req, res) => {
   try {
-    const list = fs.readdirSync(getUserProjectsDir(req.userId))
-      .filter(f => f.endsWith('.json'))
-      .map(f => {
-        try {
-          const d = JSON.parse(fs.readFileSync(path.join(getUserProjectsDir(req.userId), f), 'utf8'));
-          return { id: d.id, name: d.name, createdAt: d.createdAt, updatedAt: d.updatedAt, nodeCount: (d.nodes || []).length };
-        } catch { return null; }
-      })
-      .filter(Boolean)
-      .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+    const list = dbModule.listProjectsForUser(req.userId).map(p => ({
+      id:        p.id,
+      name:      p.name,
+      createdAt: p.createdAt,
+      updatedAt: p.updatedAt,
+      pipelineStage: p.pipelineStage,
+      nodeCount: (p.data?.nodes || []).length,
+    }));
     res.json(list);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -399,33 +403,126 @@ app.get('/api/projects', authMiddleware, (req, res) => {
 app.post('/api/projects', authMiddleware, (req, res) => {
   const id  = `proj_${Date.now()}`;
   const now = new Date().toISOString();
-  const project = { id, name: req.body.name || '未命名项目', createdAt: now, updatedAt: now, nodes: [], edges: [] };
-  fs.writeFileSync(path.join(getUserProjectsDir(req.userId), `${id}.json`), JSON.stringify(project));
+  const project = dbModule.createProject({
+    id,
+    name:      req.body.name || '未命名项目',
+    ownerId:   req.userId,
+    data:      { nodes: [], edges: [], workbench: { script: '', shots: [], prompts: [], assets: [] } },
+    createdAt: now,
+    updatedAt: now,
+  });
   res.json({ id, name: project.name, createdAt: now, updatedAt: now, nodeCount: 0 });
 });
 
 app.get('/api/projects/:id', authMiddleware, (req, res) => {
   if (!validateId(req.params.id)) return res.status(400).json({ error: 'Invalid id' });
-  const fp = path.join(getUserProjectsDir(req.userId), `${req.params.id}.json`);
-  if (!fs.existsSync(fp)) return res.status(404).json({ error: 'Not found' });
-  res.json(JSON.parse(fs.readFileSync(fp, 'utf8')));
+  const project = dbModule.findProject(req.params.id);
+  if (!project) return res.status(404).json({ error: 'Not found' });
+  if (!requireProjectAccess(req.params.id, req.userId)) return res.status(403).json({ error: '无权限' });
+  // Return canvas-compatible shape (nodes/edges/workbench at top level)
+  const { data, ...meta } = project;
+  res.json({ ...meta, ...(data || {}) });
 });
 
 app.put('/api/projects/:id', authMiddleware, (req, res) => {
   if (!validateId(req.params.id)) return res.status(400).json({ error: 'Invalid id' });
-  const fp = path.join(getUserProjectsDir(req.userId), `${req.params.id}.json`);
-  if (!fs.existsSync(fp)) return res.status(404).json({ error: 'Not found' });
-  const existing = JSON.parse(fs.readFileSync(fp, 'utf8'));
-  const updated  = { ...existing, name: req.body.name ?? existing.name, nodes: req.body.nodes ?? existing.nodes, edges: req.body.edges ?? existing.edges, workbench: req.body.workbench ?? existing.workbench ?? null, updatedAt: new Date().toISOString() };
-  fs.writeFileSync(fp, JSON.stringify(updated));
+  const project = dbModule.findProject(req.params.id);
+  if (!project) return res.status(404).json({ error: 'Not found' });
+  if (!requireProjectAccess(req.params.id, req.userId, 'editor')) return res.status(403).json({ error: '无权限' });
+
+  const existing = project.data || {};
+  const merged = {
+    ...existing,
+    nodes:     req.body.nodes     ?? existing.nodes,
+    edges:     req.body.edges     ?? existing.edges,
+    workbench: req.body.workbench ?? existing.workbench,
+  };
+  if (req.body.name || req.body.pipelineStage) {
+    dbModule.updateProjectMeta(req.params.id, {
+      name:          req.body.name,
+      pipelineStage: req.body.pipelineStage,
+    }, req.userId);
+  }
+  dbModule.updateProjectData(req.params.id, merged, req.userId);
+  const updated = dbModule.findProject(req.params.id);
   res.json({ id: updated.id, name: updated.name, updatedAt: updated.updatedAt });
 });
 
 app.delete('/api/projects/:id', authMiddleware, (req, res) => {
   if (!validateId(req.params.id)) return res.status(400).json({ error: 'Invalid id' });
-  const fp = path.join(getUserProjectsDir(req.userId), `${req.params.id}.json`);
-  if (fs.existsSync(fp)) fs.unlinkSync(fp);
+  const project = dbModule.findProject(req.params.id);
+  if (!project) return res.status(404).json({ error: 'Not found' });
+  if (!requireProjectAccess(req.params.id, req.userId, 'owner')) return res.status(403).json({ error: '无权限，只有项目所有者可删除' });
+  dbModule.deleteProject(req.params.id);
   res.json({ ok: true });
+});
+
+// ── Collaboration: status polling + member management ─────────────────────────
+
+app.get('/api/projects/:id/status', authMiddleware, (req, res) => {
+  if (!validateId(req.params.id)) return res.status(400).json({ error: 'Invalid id' });
+  if (!requireProjectAccess(req.params.id, req.userId)) return res.status(403).json({ error: '无权限' });
+  const status = dbModule.getProjectStatus(req.params.id);
+  if (!status) return res.status(404).json({ error: 'Not found' });
+  res.json(status);
+});
+
+app.get('/api/projects/:id/members', authMiddleware, (req, res) => {
+  if (!validateId(req.params.id)) return res.status(400).json({ error: 'Invalid id' });
+  if (!requireProjectAccess(req.params.id, req.userId)) return res.status(403).json({ error: '无权限' });
+  res.json(dbModule.listMembers(req.params.id));
+});
+
+app.post('/api/projects/:id/members', authMiddleware, (req, res) => {
+  if (!validateId(req.params.id)) return res.status(400).json({ error: 'Invalid id' });
+  if (!requireProjectAccess(req.params.id, req.userId, 'owner')) return res.status(403).json({ error: '只有所有者可邀请成员' });
+  const { username, role = 'editor' } = req.body;
+  if (!username) return res.status(400).json({ error: '缺少 username' });
+  const user = dbModule.findUserByUsername(username);
+  if (!user) return res.status(404).json({ error: `用户 "${username}" 不存在` });
+  dbModule.addMember(req.params.id, user.id, role);
+  res.json({ ok: true, userId: user.id, username: user.username, role });
+});
+
+app.delete('/api/projects/:id/members/:memberId', authMiddleware, (req, res) => {
+  if (!validateId(req.params.id)) return res.status(400).json({ error: 'Invalid id' });
+  if (!requireProjectAccess(req.params.id, req.userId, 'owner')) return res.status(403).json({ error: '只有所有者可移除成员' });
+  if (req.params.memberId === req.userId) return res.status(400).json({ error: '不能移除自己' });
+  dbModule.removeMember(req.params.id, req.params.memberId);
+  res.json({ ok: true });
+});
+
+// ── Tracking: stats + events + dashboard ──────────────────────────────────────
+
+app.get('/api/projects/:id/stats', authMiddleware, (req, res) => {
+  if (!validateId(req.params.id)) return res.status(400).json({ error: 'Invalid id' });
+  if (!requireProjectAccess(req.params.id, req.userId)) return res.status(403).json({ error: '无权限' });
+  const stats = dbModule.getProjectStats(req.params.id);
+  res.json(stats || { projectId: req.params.id, agentCallCount: 0, imageGenCount: 0, tokenUsed: 0, estimatedCost: 0, stagesCompleted: [] });
+});
+
+app.get('/api/projects/:id/events', authMiddleware, (req, res) => {
+  if (!validateId(req.params.id)) return res.status(400).json({ error: 'Invalid id' });
+  if (!requireProjectAccess(req.params.id, req.userId)) return res.status(403).json({ error: '无权限' });
+  res.json(dbModule.listProjectEvents(req.params.id));
+});
+
+app.get('/api/dashboard', authMiddleware, (req, res) => {
+  const global  = dbModule.getGlobalStats();
+  const projects = dbModule.listProjectsForUser(req.userId).map(p => {
+    const stats = dbModule.getProjectStats(p.id) || {};
+    return {
+      id:             p.id,
+      name:           p.name,
+      updatedAt:      p.updatedAt,
+      pipelineStage:  p.pipelineStage,
+      stagesCompleted: JSON.parse(stats.stagesCompleted || '[]'),
+      agentCallCount: stats.agentCallCount || 0,
+      imageGenCount:  stats.imageGenCount  || 0,
+      tokenUsed:      stats.tokenUsed      || 0,
+    };
+  });
+  res.json({ global, projects });
 });
 
 // ── 剧本 Agent ────────────────────────────────────────────────
@@ -647,7 +744,7 @@ const ASSET_REGISTRY_PROMPT = `你是短剧制作的视觉资产策划师。根�
 【重要】每条提示词末尾必须追加用户指定的全局风格标签（由用户消息中提供）。`;
 
 app.post('/api/script-agent', authMiddleware, async (req, res) => {
-  const { mode, history = [] } = req.body;
+  const { mode, history = [], projectId } = req.body;
 
   let userContent = '';
   let systemContent = '';
@@ -794,6 +891,7 @@ ${episodeMapText.slice(0, 1500)}
     );
 
     let buffer = '';
+    let lastUsage = null; // accumulate token usage from final SSE chunk
     response.data.on('data', chunk => {
       buffer += chunk.toString();
       const lines = buffer.split('\n');
@@ -807,10 +905,27 @@ ${episodeMapText.slice(0, 1500)}
           const parsed = JSON.parse(data);
           const text   = parsed.choices?.[0]?.delta?.content;
           if (text) res.write(`data: ${JSON.stringify({ text })}\n\n`);
+          if (parsed.usage) lastUsage = parsed.usage; // DashScope sends usage in last chunk
         } catch {}
       }
     });
-    response.data.on('end',   () => { res.write('data: [DONE]\n\n'); res.end(); });
+    response.data.on('end', () => {
+      res.write('data: [DONE]\n\n');
+      res.end();
+      // Track token usage after stream completes
+      if (projectId && lastUsage) {
+        try {
+          dbModule.trackAgentCall(
+            projectId, req.userId, mode,
+            lastUsage.prompt_tokens     || 0,
+            lastUsage.completion_tokens || 0,
+          );
+        } catch (e) {
+          // Non-fatal: tracking failure should not affect the response
+          console.warn('[tracking] trackAgentCall failed:', e.message);
+        }
+      }
+    });
     response.data.on('error', err => { res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`); res.end(); });
   } catch (err) {
     res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
@@ -818,18 +933,46 @@ ${episodeMapText.slice(0, 1500)}
   }
 });
 
-// ── 剧本数据存储 ──────────────────────────────────────────────
+// ── 剧本数据存储（DB-backed）──────────────────────────────────
+// Script fields live inside projects.data alongside canvas nodes/edges.
+const SCRIPT_FIELDS = ['params', 'storyBible', 'episodeMapText', 'episodeMap',
+                       'characterBios', 'assetRegistry', 'episodes'];
+
 app.get('/api/projects/:id/script', authMiddleware, (req, res) => {
   if (!validateId(req.params.id)) return res.status(400).json({ error: 'Invalid id' });
-  const fp = path.join(getUserProjectsDir(req.userId), `${req.params.id}_script.json`);
-  if (!fs.existsSync(fp)) return res.json({ params: null, storyBible: '', episodeMap: [], episodes: [] });
-  res.json(JSON.parse(fs.readFileSync(fp, 'utf8')));
+  const project = dbModule.findProject(req.params.id);
+  if (!project) return res.json({ params: null, storyBible: '', episodeMap: [], episodes: [] });
+  if (!requireProjectAccess(req.params.id, req.userId)) return res.status(403).json({ error: '无权限' });
+  const data = project.data || {};
+  // Return only script fields (not canvas nodes/edges which belong to the canvas route)
+  const script = {};
+  for (const f of SCRIPT_FIELDS) script[f] = data[f] ?? (f === 'episodeMap' || f === 'episodes' ? [] : '');
+  if (script.params === '') script.params = null;
+  res.json(script);
 });
 
 app.put('/api/projects/:id/script', authMiddleware, (req, res) => {
   if (!validateId(req.params.id)) return res.status(400).json({ error: 'Invalid id' });
-  const fp = path.join(getUserProjectsDir(req.userId), `${req.params.id}_script.json`);
-  fs.writeFileSync(fp, JSON.stringify({ ...req.body, updatedAt: new Date().toISOString() }));
+  const project = dbModule.findProject(req.params.id);
+  if (!project) return res.status(404).json({ error: '项目不存在' });
+  if (!requireProjectAccess(req.params.id, req.userId, 'editor')) return res.status(403).json({ error: '无权限' });
+
+  // Merge only known script fields into existing data (never clobber nodes/edges)
+  const existing = project.data || {};
+  const patch = {};
+  for (const f of SCRIPT_FIELDS) {
+    if (req.body[f] !== undefined) patch[f] = req.body[f];
+  }
+  const merged = { ...existing, ...patch };
+  dbModule.updateProjectData(req.params.id, merged, req.userId);
+
+  // Auto-advance pipelineStage based on which fields are now present
+  const stage = merged.assetRegistry  ? 'asset_registry'
+              : merged.characterBios   ? 'character_bios'
+              : merged.storyBible      ? 'story_bible'
+              : null;
+  if (stage) dbModule.updateProjectMeta(req.params.id, { pipelineStage: stage }, req.userId);
+
   res.json({ ok: true });
 });
 

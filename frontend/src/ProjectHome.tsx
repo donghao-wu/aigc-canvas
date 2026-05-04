@@ -8,6 +8,45 @@ interface ProjectMeta {
   createdAt: string
   updatedAt: string
   nodeCount: number
+  pipelineStage?: string
+  memberCount?: number
+  stagesCompleted?: string[]
+}
+
+// Pipeline stages in order
+const PIPELINE_STAGES = [
+  'story_bible', 'character_bios', 'asset_registry',
+  'episode_map', 'episodes', 'image_gen', 'video_gen',
+]
+const STAGE_LABEL: Record<string, string> = {
+  story_bible:    '故事圣经',
+  character_bios: '角色小传',
+  asset_registry: '资产登记',
+  episode_map:    '集数大纲',
+  episodes:       '逐集剧本',
+  image_gen:      '生图',
+  video_gen:      '视频',
+}
+
+interface DashboardData {
+  global: {
+    totalProjects: number
+    totalAssets: number
+    totalImages: number
+    totalTokens: number
+    estimatedCost: number
+  }
+  projects: Array<{
+    id: string
+    name: string
+    pipelineStage: string
+    stagesCompleted: string[]
+    memberCount: number
+    agentCallCount: number
+    tokenUsed: number
+    imageGenCount: number
+    updatedAt: string
+  }>
 }
 
 import type { DbAsset } from './types/asset'
@@ -22,6 +61,12 @@ interface Props {
   onOpen: (p: { id: string; name: string }) => void
   username?: string
   onLogout?: () => void
+}
+
+function fmtNum(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000)     return `${(n / 1_000).toFixed(0)}K`
+  return String(n)
 }
 
 function timeAgo(iso: string) {
@@ -46,6 +91,15 @@ export default function ProjectHome({ onOpen, username, onLogout }: Props) {
   const editInputRef = useRef<HTMLInputElement>(null)
   const [hoveredId,   setHoveredId]   = useState<string | null>(null)
 
+  // ── Dashboard ─────────────────────────────────────────────────
+  const [dashboard, setDashboard] = useState<DashboardData | null>(null)
+  const loadDashboard = useCallback(async () => {
+    try {
+      const { data } = await axios.get<DashboardData>('/api/dashboard', { headers: authHeaders() })
+      setDashboard(data)
+    } catch { /* non-critical */ }
+  }, [])
+
   // ── 资产库 ────────────────────────────────────────────────────
   const [globalAssets,  setGlobalAssets]  = useState<DbAsset[]>([])
   const [recentAssets,  setRecentAssets]  = useState<DbAsset[]>([])
@@ -68,7 +122,25 @@ export default function ProjectHome({ onOpen, username, onLogout }: Props) {
     } catch { /* non-critical */ }
   }, [])
 
-  const load = () => axios.get('/api/projects', { headers: authHeaders() }).then(r => setProjects(r.data))
+  const load = async () => {
+    const [projRes, dashRes] = await Promise.allSettled([
+      axios.get('/api/projects', { headers: authHeaders() }),
+      axios.get<DashboardData>('/api/dashboard', { headers: authHeaders() }),
+    ])
+    const projects: ProjectMeta[] = projRes.status === 'fulfilled' ? projRes.value.data : []
+    if (dashRes.status === 'fulfilled') {
+      setDashboard(dashRes.value.data)
+      const byId = Object.fromEntries(dashRes.value.data.projects.map(p => [p.id, p]))
+      setProjects(projects.map(p => ({
+        ...p,
+        pipelineStage:    byId[p.id]?.pipelineStage,
+        memberCount:      byId[p.id]?.memberCount,
+        stagesCompleted:  byId[p.id]?.stagesCompleted,
+      })))
+    } else {
+      setProjects(projects)
+    }
+  }
 
   useEffect(() => {
     load()
@@ -202,6 +274,38 @@ export default function ProjectHome({ onOpen, username, onLogout }: Props) {
           )}
         </div>
       </div>
+
+      {/* ── 统计条 ──────────────────────────── */}
+      {dashboard?.global && (
+        <div style={{
+          width: '100%',
+          background: theme === 'dark' ? 'rgba(201,152,42,0.04)' : 'rgba(184,135,14,0.03)',
+          borderBottom: `1px solid ${T.border}`,
+          display: 'flex', justifyContent: 'center',
+        }}>
+          <div style={{
+            maxWidth: 900, width: '100%',
+            padding: '10px 32px',
+            display: 'flex', gap: 32, alignItems: 'center',
+          }}>
+            {[
+              { label: '项目', value: dashboard.global.totalProjects, icon: '📁' },
+              { label: '资产', value: dashboard.global.totalAssets,   icon: '🗃️' },
+              { label: '图片', value: dashboard.global.totalImages,   icon: '🖼️' },
+              { label: 'Token', value: fmtNum(dashboard.global.totalTokens), icon: '⚡' },
+              { label: '费用', value: `¥${dashboard.global.estimatedCost.toFixed(2)}`, icon: '💰' },
+            ].map(item => (
+              <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 12, opacity: 0.6 }}>{item.icon}</span>
+                <span style={{ fontSize: 20, fontWeight: 700, color: T.text, lineHeight: 1 }}>
+                  {item.value}
+                </span>
+                <span style={{ fontSize: 10, color: T.textMuted, marginTop: 4 }}>{item.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── 主内容 ───────────────────────────── */}
       <div style={{
@@ -369,9 +473,20 @@ export default function ProjectHome({ onOpen, username, onLogout }: Props) {
                         >✎</button>
                       </div>
                     )}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    {/* Pipeline progress bar */}
+                    {(p.stagesCompleted || p.pipelineStage) && (
+                      <PipelineProgress
+                        stage={p.pipelineStage || ''}
+                        completed={p.stagesCompleted || []}
+                        T={T}
+                      />
+                    )}
+
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 }}>
                       <span style={{ fontSize: 11, color: T.textMuted }}>
-                        {p.nodeCount} 个节点 · {timeAgo(p.updatedAt)}
+                        {p.nodeCount} 节点
+                        {p.memberCount && p.memberCount > 1 ? ` · 👥 ${p.memberCount}` : ''}
+                        {' · '}{timeAgo(p.updatedAt)}
                       </span>
                       <button
                         onClick={e => handleDelete(e, p.id)}
@@ -539,6 +654,50 @@ export default function ProjectHome({ onOpen, username, onLogout }: Props) {
               )}
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── PipelineProgress ─────────────────────────────────────────
+function PipelineProgress({ stage, completed, T }: {
+  stage: string
+  completed: string[]
+  T: any
+}) {
+  const currentIdx  = PIPELINE_STAGES.indexOf(stage)
+  const completedSet = new Set(completed)
+
+  return (
+    <div style={{ marginTop: 6, marginBottom: 2 }}>
+      <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
+        {PIPELINE_STAGES.map((s, i) => {
+          const done    = completedSet.has(s)
+          const current = s === stage
+          return (
+            <div
+              key={s}
+              title={STAGE_LABEL[s]}
+              style={{
+                flex: 1, height: 3, borderRadius: 2,
+                background: done
+                  ? 'rgba(201,152,42,0.8)'
+                  : current
+                    ? 'rgba(201,152,42,0.4)'
+                    : i < currentIdx
+                      ? 'rgba(201,152,42,0.25)'
+                      : T.border,
+                transition: 'background 0.2s',
+              }}
+            />
+          )
+        })}
+      </div>
+      {stage && (
+        <div style={{ fontSize: 10, color: T.textMuted, marginTop: 3 }}>
+          {STAGE_LABEL[stage] || stage}
+          {completed.length > 0 && ` · ${completed.length}/${PIPELINE_STAGES.length} 步完成`}
         </div>
       )}
     </div>
