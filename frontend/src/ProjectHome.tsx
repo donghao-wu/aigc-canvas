@@ -65,6 +65,8 @@ interface Props {
   onLogout?: () => void
 }
 
+type HomeSection = 'overview' | 'projects' | 'scripts' | 'assets' | 'videos'
+
 const PIPELINE_STAGES = [
   'story_bible', 'character_bios', 'asset_registry',
   'episode_map', 'episodes', 'image_gen', 'video_gen',
@@ -115,6 +117,8 @@ export default function ProjectHome({ onOpen, username, onLogout }: Props) {
   const [previewAsset, setPreviewAsset] = useState<DbAsset | null>(null)
   const [assetFilter, setAssetFilter] = useState<DbAsset['type'] | 'ALL'>('ALL')
   const [search, setSearch] = useState('')
+  const [assetSearch, setAssetSearch] = useState('')
+  const [activeSection, setActiveSection] = useState<HomeSection>('overview')
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
   const [loading, setLoading] = useState(false)
@@ -175,16 +179,50 @@ export default function ProjectHome({ onOpen, username, onLogout }: Props) {
     return projects.filter(p => p.name.toLowerCase().includes(key))
   }, [projects, search])
 
-  const filteredAssets = useMemo(() => {
+  const filteredAssetLibrary = useMemo(() => {
+    const key = assetSearch.trim().toLowerCase()
     return globalAssets
       .filter(a => assetFilter === 'ALL' || a.type === assetFilter)
-      .slice(0, 8)
-  }, [globalAssets, assetFilter])
+      .filter(a => {
+        if (!key) return true
+        return a.name.toLowerCase().includes(key)
+          || (a.description || '').toLowerCase().includes(key)
+          || (a.prompt || '').toLowerCase().includes(key)
+      })
+  }, [globalAssets, assetFilter, assetSearch])
 
-  const activeProjects = dashboard?.projects
+  const filteredAssets = useMemo(() => filteredAssetLibrary.slice(0, 8), [filteredAssetLibrary])
+
+  const productionProjects = dashboard?.projects
     ?.slice()
-    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-    .slice(0, 5) || []
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()) || []
+  const activeProjects = productionProjects.slice(0, 5)
+
+  const navItems: Array<{ key: HomeSection; label: string; icon: typeof LayoutDashboard }> = [
+    { key: 'overview', label: '生产总览', icon: LayoutDashboard },
+    { key: 'projects', label: '项目队列', icon: FolderKanban },
+    { key: 'scripts', label: '剧本流水线', icon: FileText },
+    { key: 'assets', label: '视觉资产', icon: Palette },
+    { key: 'videos', label: '视频交付', icon: Video },
+  ]
+
+  const sectionMeta: Record<HomeSection, { eyebrow: string; title: string }> = {
+    overview: { eyebrow: 'Production Command', title: '项目生产中控台' },
+    projects: { eyebrow: 'Project Queue', title: '项目队列' },
+    scripts: { eyebrow: 'Script Pipeline', title: '剧本流水线' },
+    assets: { eyebrow: 'Visual Assets', title: '视觉资产' },
+    videos: { eyebrow: 'Video Delivery', title: '视频交付' },
+  }
+
+  const scriptProjects = productionProjects.filter(p =>
+    ['story_bible', 'character_bios', 'asset_registry', 'episode_map', 'episodes'].includes(p.pipelineStage)
+    || (p.stagesCompleted || []).some(s => ['story_bible', 'character_bios', 'asset_registry', 'episode_map', 'episodes'].includes(s))
+  )
+
+  const deliveryProjects = productionProjects.filter(p =>
+    ['image_gen', 'video_gen'].includes(p.pipelineStage)
+    || (p.stagesCompleted || []).some(s => ['image_gen', 'video_gen'].includes(s))
+  )
 
   const handleCreate = async () => {
     setLoading(true)
@@ -311,27 +349,22 @@ export default function ProjectHome({ onOpen, username, onLogout }: Props) {
         </div>
 
         <nav style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {[
-            { label: '生产总览', icon: LayoutDashboard, active: true },
-            { label: '项目队列', icon: FolderKanban },
-            { label: '剧本流水线', icon: FileText },
-            { label: '视觉资产', icon: Palette },
-            { label: '视频交付', icon: Video },
-          ].map(item => {
+          {navItems.map(item => {
             const Icon = item.icon
+            const active = activeSection === item.key
             return (
-              <button key={item.label} style={{
+              <button key={item.key} onClick={() => setActiveSection(item.key)} style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: 10,
                 width: '100%',
                 padding: '10px 11px',
                 borderRadius: 8,
-                border: item.active ? '1px solid rgba(201,152,42,0.28)' : '1px solid transparent',
-                background: item.active ? 'rgba(201,152,42,0.12)' : 'transparent',
-                color: item.active ? T.text : T.textSub,
+                border: active ? '1px solid rgba(201,152,42,0.28)' : '1px solid transparent',
+                background: active ? 'rgba(201,152,42,0.12)' : 'transparent',
+                color: active ? T.text : T.textSub,
                 fontSize: 13,
-                cursor: 'default',
+                cursor: 'pointer',
               }}>
                 <Icon size={16} />
                 {item.label}
@@ -397,10 +430,10 @@ export default function ProjectHome({ onOpen, username, onLogout }: Props) {
           }}>
             <div>
               <div style={{ fontSize: 11, color: T.textMuted, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>
-                Production Command
+                {sectionMeta[activeSection].eyebrow}
               </div>
               <h1 style={{ fontSize: 30, lineHeight: 1.15, marginTop: 7, fontWeight: 800, letterSpacing: '-0.02em' }}>
-                项目生产中控台
+                {sectionMeta[activeSection].title}
               </h1>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -437,30 +470,32 @@ export default function ProjectHome({ onOpen, username, onLogout }: Props) {
             </div>
           </header>
 
-          <section style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(120px, 1fr))', gap: 12, marginBottom: 18 }}>
-            {metricItems.map(item => {
-              const Icon = item.icon
-              return (
-                <div key={item.label} style={{
-                  minHeight: 98,
-                  borderRadius: 10,
-                  border: `1px solid ${T.border}`,
-                  background: cardBg,
-                  padding: 15,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
-                  boxShadow: theme === 'dark' ? '0 18px 44px rgba(0,0,0,0.2)' : '0 18px 44px rgba(88,72,34,0.08)',
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: 11, color: T.textMuted, fontWeight: 700 }}>{item.label}</span>
-                    <Icon size={16} color={T.accent} />
+          {activeSection === 'overview' && (
+            <section style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(120px, 1fr))', gap: 12, marginBottom: 18 }}>
+              {metricItems.map(item => {
+                const Icon = item.icon
+                return (
+                  <div key={item.label} style={{
+                    minHeight: 98,
+                    borderRadius: 10,
+                    border: `1px solid ${T.border}`,
+                    background: cardBg,
+                    padding: 15,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    boxShadow: theme === 'dark' ? '0 18px 44px rgba(0,0,0,0.2)' : '0 18px 44px rgba(88,72,34,0.08)',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: 11, color: T.textMuted, fontWeight: 700 }}>{item.label}</span>
+                      <Icon size={16} color={T.accent} />
+                    </div>
+                    <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: '-0.02em' }}>{item.value}</div>
                   </div>
-                  <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: '-0.02em' }}>{item.value}</div>
-                </div>
-              )
-            })}
-          </section>
+                )
+              })}
+            </section>
+          )}
 
           {creating && (
             <section style={{
@@ -527,8 +562,9 @@ export default function ProjectHome({ onOpen, username, onLogout }: Props) {
             </section>
           )}
 
-          <section style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.7fr) minmax(340px, 0.9fr)', gap: 16 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {activeSection === 'overview' && (
+            <section style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.7fr) minmax(340px, 0.9fr)', gap: 16 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <PanelCard title="项目队列" eyebrow="Projects" T={T} cardBg={cardBg} action={
                 <div style={{
                   height: 34,
@@ -664,6 +700,221 @@ export default function ProjectHome({ onOpen, username, onLogout }: Props) {
               </PanelCard>
             </div>
           </section>
+          )}
+
+          {activeSection === 'projects' && (
+            <PanelCard title="全部项目" eyebrow={`${filteredProjects.length} Projects`} T={T} cardBg={cardBg} action={
+              <div style={{
+                height: 34,
+                minWidth: 260,
+                borderRadius: 8,
+                border: `1px solid ${T.border}`,
+                background: T.inputBg,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '0 10px',
+              }}>
+                <Search size={15} color={T.textMuted} />
+                <input
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder="搜索项目"
+                  style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none', color: T.text, fontSize: 12 }}
+                />
+              </div>
+            }>
+              {filteredProjects.length > 0 ? (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
+                  {filteredProjects.map((p, i) => (
+                    <ProjectCard
+                      key={p.id}
+                      project={p}
+                      index={i}
+                      hovered={hoveredId === p.id}
+                      editing={editingId === p.id}
+                      editingName={editingName}
+                      editInputRef={editInputRef}
+                      T={T}
+                      theme={theme}
+                      onHover={setHoveredId}
+                      onOpen={onOpen}
+                      onStartEdit={startEdit}
+                      onCommitEdit={commitEdit}
+                      onEditName={setEditingName}
+                      onDelete={handleDelete}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <EmptyState T={T} />
+              )}
+            </PanelCard>
+          )}
+
+          {activeSection === 'scripts' && (
+            <section style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.3fr) minmax(320px, 0.7fr)', gap: 16 }}>
+              <PanelCard title="剧本阶段看板" eyebrow="Script Flow" T={T} cardBg={cardBg}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(132px, 1fr))', gap: 10 }}>
+                  {PIPELINE_STAGES.slice(0, 5).map(stage => (
+                    <StageLane
+                      key={stage}
+                      stage={stage}
+                      projects={productionProjects.filter(p => p.pipelineStage === stage || (p.stagesCompleted || []).includes(stage)).slice(0, 4)}
+                      T={T}
+                      onOpen={onOpen}
+                    />
+                  ))}
+                </div>
+              </PanelCard>
+
+              <PanelCard title="近期剧本项目" eyebrow={`${scriptProjects.length} Active`} T={T} cardBg={cardBg}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {scriptProjects.length > 0 ? scriptProjects.slice(0, 8).map(item => (
+                    <button key={item.id} onClick={() => onOpen({ id: item.id, name: item.name })} style={{
+                      textAlign: 'left',
+                      border: `1px solid ${T.border}`,
+                      background: T.nodeSubtle,
+                      borderRadius: 9,
+                      padding: 12,
+                      color: T.text,
+                      cursor: 'pointer',
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                        <span style={{ fontSize: 13, fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</span>
+                        <span style={{ fontSize: 10, color: T.accent, whiteSpace: 'nowrap' }}>{STAGE_LABEL[item.pipelineStage] || '未开始'}</span>
+                      </div>
+                      <PipelineProgress stage={item.pipelineStage || ''} completed={item.stagesCompleted || []} T={T} />
+                    </button>
+                  )) : (
+                    <ModuleEmpty T={T} icon={FileText} title="还没有进入剧本流水线的项目" />
+                  )}
+                </div>
+              </PanelCard>
+            </section>
+          )}
+
+          {activeSection === 'assets' && (
+            <PanelCard title="全局视觉资产" eyebrow={`${filteredAssetLibrary.length} Assets`} T={T} cardBg={cardBg} action={
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{
+                  height: 34,
+                  minWidth: 240,
+                  borderRadius: 8,
+                  border: `1px solid ${T.border}`,
+                  background: T.inputBg,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '0 10px',
+                }}>
+                  <Search size={15} color={T.textMuted} />
+                  <input
+                    value={assetSearch}
+                    onChange={e => setAssetSearch(e.target.value)}
+                    placeholder="搜索资产 / prompt"
+                    style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none', color: T.text, fontSize: 12 }}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {(['ALL', 'CHARACTER', 'SCENE', 'PROP'] as const).map(f => (
+                    <button key={f} onClick={() => setAssetFilter(f)} style={{
+                      height: 30,
+                      padding: '0 9px',
+                      borderRadius: 7,
+                      border: `1px solid ${assetFilter === f ? 'rgba(201,152,42,0.44)' : T.border}`,
+                      background: assetFilter === f ? 'rgba(201,152,42,0.12)' : T.nodeSubtle,
+                      color: assetFilter === f ? T.text : T.textSub,
+                      fontSize: 11,
+                      cursor: 'pointer',
+                    }}>
+                      {f === 'ALL' ? '全部' : TYPE_LABEL[f]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            }>
+              {filteredAssetLibrary.length > 0 ? (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(168px, 1fr))', gap: 12 }}>
+                  {filteredAssetLibrary.map(asset => (
+                    <AssetTile key={asset.id} asset={asset} T={T} onClick={() => setPreviewAsset(asset)} />
+                  ))}
+                </div>
+              ) : (
+                <ModuleEmpty T={T} icon={Palette} title="暂无匹配的视觉资产" />
+              )}
+            </PanelCard>
+          )}
+
+          {activeSection === 'videos' && (
+            <section style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.1fr) minmax(320px, 0.8fr)', gap: 16 }}>
+              <PanelCard title="交付队列" eyebrow={`${deliveryProjects.length} Candidates`} T={T} cardBg={cardBg}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {deliveryProjects.length > 0 ? deliveryProjects.map(item => (
+                    <button key={item.id} onClick={() => onOpen({ id: item.id, name: item.name })} style={{
+                      textAlign: 'left',
+                      border: `1px solid ${T.border}`,
+                      background: T.nodeSubtle,
+                      borderRadius: 9,
+                      padding: 12,
+                      color: T.text,
+                      cursor: 'pointer',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</div>
+                          <div style={{ fontSize: 11, color: T.textMuted, marginTop: 4 }}>
+                            {STAGE_LABEL[item.pipelineStage] || item.pipelineStage || '待排期'} · {timeAgo(item.updatedAt)}
+                          </div>
+                        </div>
+                        <Video size={16} color={T.accent} />
+                      </div>
+                      <PipelineProgress stage={item.pipelineStage || ''} completed={item.stagesCompleted || []} T={T} />
+                    </button>
+                  )) : (
+                    <ModuleEmpty T={T} icon={Video} title="还没有进入视频交付的项目" />
+                  )}
+                </div>
+              </PanelCard>
+
+              <PanelCard title="交付能力状态" eyebrow="Roadmap" T={T} cardBg={cardBg}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                  {[
+                    ['视频生成节点', '已在画布内提供基础节点'],
+                    ['交付状态追踪', '待接入任务状态、审核和导出记录'],
+                    ['成片版本库', '待接入多版本对比与最终交付包'],
+                  ].map(([title, desc], index) => (
+                    <div key={title} style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      padding: 11,
+                      borderRadius: 9,
+                      border: `1px solid ${T.border}`,
+                      background: T.nodeSubtle,
+                    }}>
+                      <span style={{
+                        width: 22,
+                        height: 22,
+                        borderRadius: 7,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        background: index === 0 ? 'rgba(80,200,120,0.12)' : 'rgba(201,152,42,0.1)',
+                        color: index === 0 ? 'rgba(80,200,120,0.9)' : T.accent,
+                        fontSize: 11,
+                        fontWeight: 900,
+                      }}>{index === 0 ? '✓' : '·'}</span>
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 800 }}>{title}</div>
+                        <div style={{ fontSize: 11, color: T.textMuted, marginTop: 3 }}>{desc}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </PanelCard>
+            </section>
+          )}
         </div>
       </main>
 
@@ -707,6 +958,81 @@ function PanelCard({ title, eyebrow, action, children, T, cardBg }: {
       </div>
       {children}
     </section>
+  )
+}
+
+function StageLane({ stage, projects, T, onOpen }: {
+  stage: string
+  projects: DashboardData['projects']
+  T: any
+  onOpen: (p: { id: string; name: string }) => void
+}) {
+  return (
+    <div style={{
+      minHeight: 260,
+      border: `1px solid ${T.border}`,
+      background: T.nodeSubtle,
+      borderRadius: 10,
+      padding: 10,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 9,
+    }}>
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 850 }}>{STAGE_LABEL[stage]}</div>
+        <div style={{ fontSize: 10, color: T.textMuted, marginTop: 4 }}>{projects.length} 个项目</div>
+      </div>
+      {projects.length > 0 ? projects.map(project => (
+        <button key={project.id} onClick={() => onOpen({ id: project.id, name: project.name })} style={{
+          textAlign: 'left',
+          border: `1px solid ${T.border}`,
+          background: 'rgba(255,255,255,0.035)',
+          borderRadius: 8,
+          padding: 9,
+          color: T.text,
+          cursor: 'pointer',
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{project.name}</div>
+          <div style={{ fontSize: 10, color: T.textMuted, marginTop: 4 }}>{timeAgo(project.updatedAt)}</div>
+        </button>
+      )) : (
+        <div style={{
+          minHeight: 104,
+          border: `1px dashed ${T.borderMid}`,
+          borderRadius: 8,
+          color: T.textMuted,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 11,
+          textAlign: 'center',
+          padding: 10,
+        }}>
+          暂无项目
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ModuleEmpty({ T, icon: Icon, title }: { T: any; icon: typeof FileText; title: string }) {
+  return (
+    <div style={{
+      minHeight: 240,
+      border: `1px dashed ${T.borderMid}`,
+      borderRadius: 10,
+      background: T.nodeSubtle,
+      color: T.textMuted,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 10,
+      fontSize: 13,
+    }}>
+      <Icon size={30} />
+      <span>{title}</span>
+    </div>
   )
 }
 
