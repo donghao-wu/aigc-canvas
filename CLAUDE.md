@@ -49,6 +49,26 @@ curl -s -X GET http://localhost:3001/api/admin/users
 2. 执行上方安全检查（全部 5 项）
 3. 提交并推送
 
+## Agent Prompt 同步规则
+
+**每次修改 `backend/index.js` 中的任何 prompt 常量，必须同步更新 `vault/` 中对应文件。**
+
+| 代码常量 | Vault 文件 |
+|---------|-----------|
+| `STORY_BIBLE_PROMPT` | `vault/Agents/01-故事圣经.md` |
+| `CHARACTER_BIOS_PROMPT` | `vault/Agents/02-角色小传.md` |
+| `ASSET_REGISTRY_PROMPT` | `vault/Agents/03-资产登记.md` |
+| `EPISODE_MAP_PROMPT` | `vault/Agents/04-集数大纲.md` |
+| `WRITE_EPISODE_PROMPT` | `vault/Agents/05-逐集剧本.md` |
+| `SUMMARIZE_PROMPT` | `vault/Agents/06-集数摘要.md` |
+
+同步时需要：
+- 更新 vault 文件中"当前生产版"代码块内的 prompt 内容
+- 更新文件顶部 frontmatter 的 `version` 和 `last_updated`
+- 在"迭代记录"表格中追加一行说明改动
+
+新增 prompt 变体时，先在 `vault/Agents/_drafts/` 中测试，满意后再同步到代码。
+
 ## Commit 格式
 
 ```

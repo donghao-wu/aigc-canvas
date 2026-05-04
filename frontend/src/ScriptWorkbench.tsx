@@ -20,6 +20,16 @@ interface GenerateParams {
   requirements: string
 }
 
+interface StyleConfig {
+  visualStyle: '2D漫画' | '3D渲染' | '写实'
+  artStyle: string
+  customStyle: string
+}
+
+const VISUAL_STYLES: Array<StyleConfig['visualStyle']> = ['2D漫画', '3D渲染', '写实']
+const ART_STYLES = ['新海诚', '吉卜力', '国风漫画', '韩漫平涂', '欧美CG', '自定义'] as const
+const DEFAULT_STYLE_CONFIG: StyleConfig = { visualStyle: '2D漫画', artStyle: '韩漫平涂', customStyle: '' }
+
 interface EpisodeOutline {
   index: number      // 0-based
   title: string
@@ -38,14 +48,16 @@ interface EpisodeDraft {
 
 interface ScriptData {
   params: GenerateParams | null
+  styleConfig: StyleConfig
   storyBible: string
   characterBios: string
+  assetRegistry: string
   episodeMapText: string
   episodeMap: EpisodeOutline[]
   episodes: EpisodeDraft[]
 }
 
-type SelectedItem = 'params' | 'bible' | 'bios' | 'map' | number
+type SelectedItem = 'params' | 'bible' | 'bios' | 'assets' | 'map' | number
 
 const GENRES  = ['都市', '古装', '悬疑', '甜宠', '逆袭', '职场', '家庭', '青春', '豪门', '其他']
 const STYLES  = ['爽文', '轻喜', '正剧', '虐恋', '悬疑烧脑', '热血励志', '甜宠']
@@ -62,8 +74,9 @@ const DEFAULT_PARAMS: GenerateParams = {
 }
 
 const EMPTY_DATA: ScriptData = {
-  params: null, storyBible: '', characterBios: '', episodeMapText: '',
-  episodeMap: [], episodes: [],
+  params: null, styleConfig: DEFAULT_STYLE_CONFIG,
+  storyBible: '', characterBios: '', assetRegistry: '',
+  episodeMapText: '', episodeMap: [], episodes: [],
 }
 
 // ── 下载工具 ─────────────────────────────────────────────────
@@ -157,6 +170,7 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
   // ── 核心状态 ───────────────────────────────────────────────
   const [data, setData]             = useState<ScriptData>(EMPTY_DATA)
   const [params, setParams]         = useState<GenerateParams>(DEFAULT_PARAMS)
+  const [styleConfig, setStyleConfig] = useState<StyleConfig>(DEFAULT_STYLE_CONFIG)
   const [selected, setSelected]     = useState<SelectedItem>('params')
   const [streamBuf, setStreamBuf]   = useState('')   // 当前正在 stream 的文字
   const [busy, setBusy]             = useState(false)
@@ -176,6 +190,7 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
         if (saved.storyBible || saved.episodes?.length) {
           setData(saved)
           if (saved.params) setParams(saved.params)
+          if (saved.styleConfig) setStyleConfig(saved.styleConfig)
           // 自动导航到合适位置
           if (saved.episodes?.length > 0) {
             const lastDone = saved.episodes.filter((e: EpisodeDraft) => e.status === 'done').length
@@ -210,6 +225,7 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
   // ── 阶段计算 ─────────────────────────────────────────────
   const hasBible    = !!data.storyBible
   const hasBios     = !!data.characterBios
+  const hasAssets   = !!data.assetRegistry
   const hasMap      = data.episodeMap.length > 0
   const doneCount   = data.episodes.filter(e => e.status === 'done').length
   const totalEps    = params.episodes
@@ -255,15 +271,35 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
     )
   }, [busy, hasBible, data.storyBible, updateData])
 
-  // ── Step 3: 生成集数大纲 ─────────────────────────────────
-  const handleGenerateMap = useCallback(() => {
+  // ── Step 3: 生成资产登记册 ───────────────────────────────
+  const handleGenerateAssets = useCallback(() => {
     if (busy || !hasBible || !hasBios) return
+    setBusy(true); setError(''); setStreamBuf(''); setSelected('assets')
+    abortRef.current = new AbortController()
+
+    let full = ''
+    streamSSE(
+      { mode: 'asset_registry', storyBible: data.storyBible, characterBios: data.characterBios, styleConfig },
+      chunk => { full += chunk; setStreamBuf(full) },
+      fullText => {
+        updateData({ assetRegistry: fullText, styleConfig }, true)
+        setStreamBuf('')
+        setBusy(false)
+      },
+      msg => { setError(msg); setBusy(false); setStreamBuf('') },
+      abortRef.current.signal,
+    )
+  }, [busy, hasBible, hasBios, data.storyBible, data.characterBios, styleConfig, updateData])
+
+  // ── Step 4: 生成集数大纲 ─────────────────────────────────
+  const handleGenerateMap = useCallback(() => {
+    if (busy || !hasBible || !hasBios || !hasAssets) return
     setBusy(true); setError(''); setStreamBuf(''); setSelected('map')
     abortRef.current = new AbortController()
 
     let full = ''
     streamSSE(
-      { mode: 'episode_map', storyBible: data.storyBible, characterBios: data.characterBios, episodes: params.episodes },
+      { mode: 'episode_map', storyBible: data.storyBible, characterBios: data.characterBios, assetRegistry: data.assetRegistry, episodes: params.episodes },
       chunk => { full += chunk; setStreamBuf(full) },
       fullText => {
         const map = parseEpisodeMap(fullText)
@@ -277,7 +313,7 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
       msg => { setError(msg); setBusy(false); setStreamBuf('') },
       abortRef.current.signal,
     )
-  }, [busy, hasBible, hasBios, data.storyBible, data.characterBios, params.episodes, updateData])
+  }, [busy, hasBible, hasBios, hasAssets, data.storyBible, data.characterBios, data.assetRegistry, params.episodes, updateData])
 
   // ── Step 3: 逐集生成循环 ─────────────────────────────────
   const generateEpisodesFrom = useCallback(async (startIndex: number) => {
@@ -321,6 +357,7 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
             mode: 'write_episode',
             storyBible: d2.storyBible,
             characterBios: d2.characterBios,
+            assetRegistry: d2.assetRegistry,
             episodeMapText: d2.episodeMapText.slice(0, 2000),
             episodeIndex: i,
             currentOutline,
@@ -439,12 +476,18 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
     }
     if (selected === 'bios') {
       const text = (busy && streamBuf && selected === 'bios') ? streamBuf : data.characterBios
-      return <MarkdownView text={text} T={T} streaming={busy && selected === 'bios'}
+      return <BiosView text={text} T={T} streaming={busy && selected === 'bios'}
         onDownload={data.characterBios && !busy ? () => downloadText(`${projectName}-角色小传.txt`, data.characterBios) : undefined} />
+    }
+    if (selected === 'assets') {
+      const text = (busy && streamBuf && selected === 'assets') ? streamBuf : data.assetRegistry
+      return <AssetRegistryView text={text} T={T} streaming={busy && selected === 'assets'} projectName={projectName}
+        onDownload={data.assetRegistry && !busy ? () => downloadText(`${projectName}-资产登记册.txt`, data.assetRegistry) : undefined}
+        onSwitchToCanvas={onSwitchToCanvas} />
     }
     if (selected === 'map') {
       const text = (busy && streamBuf && selected === 'map') ? streamBuf : data.episodeMapText
-      return <MarkdownView text={text} T={T} streaming={busy && selected === 'map'}
+      return <EpisodeMapView text={text} T={T} streaming={busy && selected === 'map'}
         onDownload={data.episodeMapText && !busy ? () => downloadText(`${projectName}-集数大纲.txt`, data.episodeMapText) : undefined} />
     }
     if (typeof selected === 'number') {
@@ -467,10 +510,11 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
 
   // ── 阶段指示器状态 ────────────────────────────────────────
   const phase =
-    !hasBible ? 1 :
-    !hasBios  ? 2 :
-    !hasMap   ? 3 :
-    doneCount < totalEps ? 4 : 5
+    !hasBible   ? 1 :
+    !hasBios    ? 2 :
+    !hasAssets  ? 3 :
+    !hasMap     ? 4 :
+    doneCount < totalEps ? 5 : 6
 
   // ── 渲染 ─────────────────────────────────────────────────
   return (
@@ -501,8 +545,9 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
             <span style={{ fontSize: 11, color: T.accent }}>
               {typeof selected === 'number'
                 ? `生成第 ${selected + 1}/${totalEps} 集...`
-                : selected === 'bible' ? '生成故事圣经...'
-                : selected === 'bios'  ? '生成角色小传...'
+                : selected === 'bible'  ? '生成故事圣经...'
+                : selected === 'bios'   ? '生成角色小传...'
+                : selected === 'assets' ? '生成资产登记册...'
                 : '生成集数大纲...'}
             </span>
           </div>
@@ -539,6 +584,8 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
                 <ParamsForm
                   params={params}
                   setParam={setParam}
+                  styleConfig={styleConfig}
+                  setStyleConfig={setStyleConfig}
                   T={T}
                   theme={theme}
                   hasBible={hasBible}
@@ -555,12 +602,14 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
             paused={paused}
             hasBible={hasBible}
             hasBios={hasBios}
+            hasAssets={hasAssets}
             hasMap={hasMap}
             doneCount={doneCount}
             totalEps={totalEps}
             allDone={allDone}
             onGenerateBible={handleGenerateBible}
             onGenerateBios={handleGenerateBios}
+            onGenerateAssets={handleGenerateAssets}
             onGenerateMap={handleGenerateMap}
             onStartEpisodes={handleStartEpisodes}
             onPause={handlePause}
@@ -579,11 +628,12 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
 // ── 阶段进度条 ───────────────────────────────────────────────
 function PhaseBar({ phase, doneCount, totalEps, T }: { phase: number; doneCount: number; totalEps: number; T: any }) {
   const steps = [
-    { n: 1, label: '① 生成配置' },
+    { n: 1, label: '① 配置' },
     { n: 2, label: '② 故事圣经' },
     { n: 3, label: '③ 角色小传' },
-    { n: 4, label: '④ 集数大纲' },
-    { n: 5, label: `⑤ 逐集生成 ${doneCount}/${totalEps}` },
+    { n: 4, label: '④ 资产登记' },
+    { n: 5, label: '⑤ 集数大纲' },
+    { n: 6, label: `⑥ 逐集生成 ${doneCount}/${totalEps}` },
   ]
   return (
     <div style={{ display: 'flex', alignItems: 'center', padding: '8px 20px', borderBottom: `1px solid ${T.border}`, background: T.headerBg, flexShrink: 0, gap: 0 }}>
@@ -648,10 +698,11 @@ function EpisodeNav({ data, selected, busy, streaming, onSelect, T, theme }: {
       {/* 固定项：配置 / 故事圣经 / 集数大纲 */}
       <div style={{ flexShrink: 0, borderBottom: `1px solid ${T.border}` }}>
         {[
-          { key: 'params' as SelectedItem, icon: '⚙️', label: '生成配置' },
-          { key: 'bible' as SelectedItem, icon: '📖', label: '故事圣经', has: !!data.storyBible },
-          { key: 'bios'  as SelectedItem, icon: '👥', label: '角色小传', has: !!data.characterBios },
-          { key: 'map'   as SelectedItem, icon: '🗺', label: '集数大纲', has: data.episodeMap.length > 0 },
+          { key: 'params'  as SelectedItem, icon: '⚙️', label: '生成配置' },
+          { key: 'bible'   as SelectedItem, icon: '📖', label: '故事圣经', has: !!data.storyBible },
+          { key: 'bios'    as SelectedItem, icon: '👥', label: '角色小传', has: !!data.characterBios },
+          { key: 'assets'  as SelectedItem, icon: '🎨', label: '资产登记', has: !!data.assetRegistry },
+          { key: 'map'     as SelectedItem, icon: '🗺', label: '集数大纲', has: data.episodeMap.length > 0 },
         ].map(item => (
           <button
             key={String(item.key)}
@@ -725,9 +776,11 @@ function EpisodeNav({ data, selected, busy, streaming, onSelect, T, theme }: {
 }
 
 // ── 生成配置表单 ─────────────────────────────────────────────
-function ParamsForm({ params, setParam, T, theme, hasBible }: {
+function ParamsForm({ params, setParam, styleConfig, setStyleConfig, T, theme, hasBible }: {
   params: GenerateParams
   setParam: <K extends keyof GenerateParams>(k: K, v: GenerateParams[K]) => void
+  styleConfig: StyleConfig
+  setStyleConfig: (c: StyleConfig) => void
   T: any; theme: string; hasBible: boolean
 }) {
   const inputStyle: React.CSSProperties = {
@@ -735,11 +788,19 @@ function ParamsForm({ params, setParam, T, theme, hasBible }: {
     border: `1px solid ${T.border}`, background: T.inputBg,
     color: T.text, fontSize: 13, outline: 'none',
   }
+  const btnStyle = (active: boolean): React.CSSProperties => ({
+    padding: '5px 12px', borderRadius: 6, fontSize: 12, cursor: 'pointer', border: `1px solid ${T.border}`,
+    background: active ? T.btnBg : T.nodeSubtle,
+    color: active ? T.btnText : T.textSub,
+    fontWeight: active ? 600 : 400,
+    transition: 'all 0.15s',
+  })
+
   return (
-    <div style={{ maxWidth: 640, margin: '0 auto', padding: '32px 24px' }}>
+    <div style={{ maxWidth: 680, margin: '0 auto', padding: '32px 24px' }}>
       <h2 style={{ fontSize: 18, fontWeight: 700, color: T.text, marginBottom: 6 }}>剧本生成配置</h2>
       <p style={{ fontSize: 13, color: T.textSub, marginBottom: 28 }}>
-        填写完成后，系统将分三步自动生成：故事圣经 → 集数大纲 → 逐集剧本
+        填写完成后，系统将分步骤自动生成：故事圣经 → 角色小传 → 资产登记 → 集数大纲 → 逐集剧本
       </p>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
@@ -818,6 +879,65 @@ function ParamsForm({ params, setParam, T, theme, hasBible }: {
         </div>
       </div>
 
+      {/* ── 视觉风格配置 ─────────────────────────────────────── */}
+      <div style={{ marginTop: 24, padding: '16px 18px', background: T.nodeSubtle, border: `1px solid ${T.border}`, borderRadius: 10 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span>🎨</span>
+          <span>视觉风格配置</span>
+          <span style={{ fontSize: 11, fontWeight: 400, color: T.textMuted }}>影响资产生图提示词</span>
+        </div>
+
+        {/* 画面类型 */}
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 6 }}>画面类型</div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {VISUAL_STYLES.map(v => (
+              <button key={v} onClick={() => setStyleConfig({ ...styleConfig, visualStyle: v })}
+                style={btnStyle(styleConfig.visualStyle === v)}>{v}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* 画风 */}
+        <div style={{ marginBottom: styleConfig.artStyle === '自定义' ? 10 : 0 }}>
+          <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 6 }}>画风</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {ART_STYLES.map(a => (
+              <button key={a} onClick={() => setStyleConfig({ ...styleConfig, artStyle: a })}
+                style={btnStyle(styleConfig.artStyle === a)}>{a}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* 自定义风格输入 */}
+        {styleConfig.artStyle === '自定义' && (
+          <div style={{ marginTop: 10 }}>
+            <input
+              type="text"
+              value={styleConfig.customStyle}
+              onChange={e => setStyleConfig({ ...styleConfig, customStyle: e.target.value })}
+              placeholder="输入英文风格词，例：watercolor illustration, soft pastel tones, anime style"
+              style={{ ...inputStyle, fontSize: 12 }}
+            />
+          </div>
+        )}
+
+        {/* 预览 */}
+        <div style={{ marginTop: 10, fontSize: 11, color: T.textMuted, fontFamily: 'monospace', lineHeight: 1.5 }}>
+          <span style={{ color: T.accent }}>风格标签预览：</span>{' '}
+          {styleConfig.artStyle === '自定义'
+            ? (styleConfig.customStyle || '请输入自定义风格词...')
+            : ({
+              '新海诚': 'Makoto Shinkai anime style, soft watercolor sky, natural lighting',
+              '吉卜力': 'Studio Ghibli style, hand-drawn animation, warm earthy tones',
+              '国风漫画': 'Chinese manhua style, ink wash aesthetics, elegant linework',
+              '韩漫平涂': 'Korean webtoon style, flat color illustration, clean bold linework',
+              '欧美CG': 'Western CG animation, Pixar-quality rendering, vibrant colors',
+            }[styleConfig.artStyle] || '')
+          }
+        </div>
+      </div>
+
       {hasBible && (
         <div style={{ marginTop: 16, padding: '10px 14px', background: 'rgba(201,152,42,0.08)', border: '1px solid rgba(201,152,42,0.2)', borderRadius: 8, fontSize: 12, color: T.accent }}>
           ⚠️ 已有故事圣经。修改配置后重新生成将覆盖现有内容。
@@ -827,7 +947,7 @@ function ParamsForm({ params, setParam, T, theme, hasBible }: {
   )
 }
 
-// ── Markdown 内容查看器 ──────────────────────────────────────
+// ── Markdown 内容查看器（故事圣经 / 角色小传）────────────────
 function MarkdownView({ text, T, streaming, onDownload }: { text: string; T: any; streaming: boolean; onDownload?: () => void }) {
   if (!text) return (
     <div style={{ textAlign: 'center', paddingTop: 80, color: T.textMuted }}>
@@ -835,8 +955,63 @@ function MarkdownView({ text, T, streaming, onDownload }: { text: string; T: any
       <div style={{ fontSize: 13 }}>内容将在生成后显示在此处</div>
     </div>
   )
+  const mdComponents = {
+    h1: ({ children }: any) => (
+      <h1 style={{ fontSize: 18, fontWeight: 700, color: T.text, margin: '24px 0 10px', paddingBottom: 8, borderBottom: `2px solid ${T.accent}`, letterSpacing: 0.5 }}>{children}</h1>
+    ),
+    h2: ({ children }: any) => (
+      <h2 style={{ fontSize: 15, fontWeight: 600, color: T.text, margin: '20px 0 8px', paddingBottom: 5, borderBottom: `1px solid ${T.border}` }}>{children}</h2>
+    ),
+    h3: ({ children }: any) => (
+      <h3 style={{ fontSize: 13, fontWeight: 600, color: T.accent, margin: '14px 0 5px' }}>{children}</h3>
+    ),
+    p: ({ children }: any) => (
+      <p style={{ margin: '0 0 10px', lineHeight: 1.85, color: T.text }}>{children}</p>
+    ),
+    strong: ({ children }: any) => (
+      <strong style={{ fontWeight: 700, color: T.text }}>{children}</strong>
+    ),
+    em: ({ children }: any) => (
+      <em style={{ fontStyle: 'italic', color: T.textSub }}>{children}</em>
+    ),
+    hr: () => (
+      <hr style={{ border: 'none', borderTop: `1px solid ${T.borderMid}`, margin: '18px 0' }} />
+    ),
+    ul: ({ children }: any) => (
+      <ul style={{ paddingLeft: 20, margin: '4px 0 10px', listStyleType: 'disc' }}>{children}</ul>
+    ),
+    ol: ({ children }: any) => (
+      <ol style={{ paddingLeft: 20, margin: '4px 0 10px' }}>{children}</ol>
+    ),
+    li: ({ children }: any) => (
+      <li style={{ margin: '3px 0', lineHeight: 1.75, color: T.text }}>{children}</li>
+    ),
+    blockquote: ({ children }: any) => (
+      <blockquote style={{ margin: '10px 0', paddingLeft: 14, borderLeft: `3px solid ${T.accent}`, color: T.textSub, fontStyle: 'italic' }}>{children}</blockquote>
+    ),
+    table: ({ children }: any) => (
+      <div style={{ overflowX: 'auto', margin: '12px 0' }}>
+        <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12 }}>{children}</table>
+      </div>
+    ),
+    thead: ({ children }: any) => (
+      <thead style={{ background: T.nodeSubtle }}>{children}</thead>
+    ),
+    th: ({ children }: any) => (
+      <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 600, color: T.textSub, borderBottom: `1px solid ${T.borderMid}`, whiteSpace: 'nowrap' }}>{children}</th>
+    ),
+    td: ({ children }: any) => (
+      <td style={{ padding: '5px 12px', borderBottom: `1px solid ${T.border}`, color: T.text, verticalAlign: 'top', lineHeight: 1.6 }}>{children}</td>
+    ),
+    code: ({ children, className }: any) => {
+      const isBlock = className?.startsWith('language-')
+      return isBlock
+        ? <pre style={{ background: T.nodeSubtle, border: `1px solid ${T.border}`, borderRadius: 6, padding: '12px 16px', overflowX: 'auto', fontSize: 12, color: T.text, margin: '10px 0' }}><code>{children}</code></pre>
+        : <code style={{ background: T.nodeSubtle, border: `1px solid ${T.border}`, borderRadius: 3, padding: '1px 5px', fontSize: 12, color: T.accent }}>{children}</code>
+    },
+  }
   return (
-    <div style={{ fontSize: 13, lineHeight: 1.9, color: T.text, maxWidth: 720 }}>
+    <div style={{ fontSize: 13, lineHeight: 1.9, color: T.text, maxWidth: 760 }}>
       {!streaming && onDownload && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
           <button onClick={onDownload} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 5, background: T.nodeSubtle, border: `1px solid ${T.border}`, color: T.textSub, cursor: 'pointer' }}>
@@ -844,10 +1019,561 @@ function MarkdownView({ text, T, streaming, onDownload }: { text: string; T: any
           </button>
         </div>
       )}
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{text}</ReactMarkdown>
       {streaming && <span style={{ color: T.accent }}>▌</span>}
     </div>
   )
+}
+
+// ── 角色小传卡片渲染器 ─────────────────────────────────────────
+// 格式：7 行字段（姓名/年龄/对标演员/性格/背景故事/主要事件/人物关系），角色间空行分隔
+const BIO_FIELDS = ['姓名', '年龄', '对标演员', '性格', '背景故事', '主要事件', '人物关系'] as const
+const BIO_FIELD_ICONS: Record<string, string> = {
+  姓名: '👤', 年龄: '🎂', 对标演员: '🎬', 性格: '🧠', 背景故事: '📖', 主要事件: '⚡', 人物关系: '🔗',
+}
+
+function parseBioBlock(block: string): Record<string, string> {
+  const result: Record<string, string> = {}
+  const lines = block.split('\n')
+  let currentField = ''
+  let currentValue: string[] = []
+  for (const line of lines) {
+    const fieldMatch = line.match(/^([^\s：:]{1,6})[：:](.*)$/)
+    if (fieldMatch && BIO_FIELDS.includes(fieldMatch[1] as any)) {
+      if (currentField) result[currentField] = currentValue.join('\n').trim()
+      currentField = fieldMatch[1]
+      currentValue = [fieldMatch[2].trim()]
+    } else if (currentField) {
+      currentValue.push(line)
+    }
+  }
+  if (currentField) result[currentField] = currentValue.join('\n').trim()
+  return result
+}
+
+function BiosView({ text, T, streaming, onDownload }: { text: string; T: any; streaming: boolean; onDownload?: () => void }) {
+  if (!text) return (
+    <div style={{ textAlign: 'center', paddingTop: 80, color: T.textMuted }}>
+      <div style={{ fontSize: 32, marginBottom: 12 }}>👥</div>
+      <div style={{ fontSize: 13 }}>内容将在生成后显示在此处</div>
+    </div>
+  )
+
+  // 按空行分割角色块
+  const rawBlocks = text.split(/\n\s*\n/).map(b => b.trim()).filter(Boolean)
+  const parsed = rawBlocks.map(b => parseBioBlock(b))
+  const hasCards = parsed.some(p => p['姓名'])
+
+  // streaming 时如果还没解析出完整卡片，先显示纯文本
+  if (streaming && !hasCards) {
+    return (
+      <div style={{ fontSize: 13, lineHeight: 1.85, color: T.text, whiteSpace: 'pre-wrap', maxWidth: 760 }}>
+        {text}<span style={{ color: T.accent }}>▌</span>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ maxWidth: 760 }}>
+      {!streaming && onDownload && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+          <button onClick={onDownload} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 5, background: T.nodeSubtle, border: `1px solid ${T.border}`, color: T.textSub, cursor: 'pointer' }}>
+            ↓ 下载
+          </button>
+        </div>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {parsed.map((bio, i) => {
+          const name = bio['姓名']
+          if (!name) {
+            // 非卡片块（可能是 AI 前言/后记）
+            const raw = rawBlocks[i]
+            return raw ? <div key={i} style={{ fontSize: 12, color: T.textSub, padding: '4px 0' }}>{raw}</div> : null
+          }
+          return (
+            <div key={i} style={{
+              border: `1px solid ${T.borderMid}`,
+              borderRadius: 10,
+              overflow: 'hidden',
+              background: T.nodeSubtle,
+            }}>
+              {/* 角色头部 */}
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '10px 16px',
+                background: `${T.accent}18`,
+                borderBottom: `1px solid ${T.borderMid}`,
+              }}>
+                <span style={{ fontSize: 22 }}>👤</span>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>{name}</div>
+                  <div style={{ fontSize: 12, color: T.textSub, marginTop: 2 }}>
+                    {[bio['年龄'] && `${bio['年龄']}`, bio['对标演员'] && `对标：${bio['对标演员']}`].filter(Boolean).join('　')}
+                  </div>
+                </div>
+              </div>
+              {/* 字段列表 */}
+              <div style={{ padding: '10px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {(['性格', '背景故事', '主要事件', '人物关系'] as const).map(field => {
+                  if (!bio[field]) return null
+                  return (
+                    <div key={field}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
+                        <span style={{ fontSize: 11 }}>{BIO_FIELD_ICONS[field]}</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, letterSpacing: 0.5 }}>{field}</span>
+                      </div>
+                      <div style={{ fontSize: 12.5, color: T.text, lineHeight: 1.8, paddingLeft: 18, whiteSpace: 'pre-wrap' }}>
+                        {bio[field]}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })}
+        {streaming && <span style={{ color: T.accent, padding: '4px 0' }}>▌</span>}
+      </div>
+    </div>
+  )
+}
+
+// ── 资产登记册渲染器 + 推送画布 ──────────────────────────────
+interface AssetPrompt {
+  label: string
+  prompt: string
+}
+
+interface AssetItem {
+  type: '人物' | '场景' | '道具' | string
+  name: string
+  fields: Record<string, string>   // 外形/描述等展示字段
+  prompts: AssetPrompt[]           // 多条生图提示词
+}
+
+const ASSET_TYPE_ICON: Record<string, string> = { 人物: '👤', 场景: '🏛', 道具: '💎' }
+const ASSET_TYPE_COLOR: Record<string, string> = { 人物: '#C9982A', 场景: '#2A9AC9', 道具: '#6AC92A' }
+
+// 每类型对应的提示词标签颜色（循环用）
+const PROMPT_LABEL_COLORS = ['#C9982A', '#2A9AC9', '#6AC92A', '#C92A8A', '#8A2AC9']
+
+function parseAssets(text: string): AssetItem[] {
+  const blocks = text.split(/\n\s*\n/).map(b => b.trim()).filter(Boolean)
+  const items: AssetItem[] = []
+  for (const block of blocks) {
+    const lines = block.split('\n')
+    const obj: Record<string, string> = {}
+    let currentKey = ''
+    let currentVal: string[] = []
+    for (const line of lines) {
+      // Match field keys up to 12 chars (handles '提示词-三视图' etc.)
+      const m = line.match(/^([^\s：:]{1,12})[：:](.*)$/)
+      if (m) {
+        if (currentKey) obj[currentKey] = currentVal.join('\n').trim()
+        currentKey = m[1].trim()
+        currentVal = [m[2].trim()]
+      } else if (currentKey) {
+        currentVal.push(line)
+      }
+    }
+    if (currentKey) obj[currentKey] = currentVal.join('\n').trim()
+    if (!obj['名称']) continue
+
+    const prompts: AssetPrompt[] = []
+    const fields: Record<string, string> = {}
+
+    for (const [k, v] of Object.entries(obj)) {
+      if (k === '类型' || k === '名称') continue
+      if (k.startsWith('提示词-')) {
+        prompts.push({ label: k.slice(4), prompt: v })  // slice '提示词-'
+      } else if (k === '生图提示词') {
+        // legacy single-prompt format
+        prompts.push({ label: '生图', prompt: v })
+      } else {
+        fields[k] = v
+      }
+    }
+
+    items.push({ type: obj['类型'] || '其他', name: obj['名称'], fields, prompts })
+  }
+  return items
+}
+
+function AssetRegistryView({ text, T, streaming, projectName, onDownload, onSwitchToCanvas }: {
+  text: string; T: any; streaming: boolean; projectName: string
+  onDownload?: () => void; onSwitchToCanvas?: () => void
+}) {
+  const [pushed, setPushed] = React.useState(false)
+  const [copiedKey, setCopiedKey] = React.useState('')
+
+  const copyPrompt = (prompt: string, key: string) => {
+    navigator.clipboard.writeText(prompt).catch(() => {})
+    setCopiedKey(key)
+    setTimeout(() => setCopiedKey(''), 2000)
+  }
+
+  if (!text) return (
+    <div style={{ textAlign: 'center', paddingTop: 80, color: T.textMuted }}>
+      <div style={{ fontSize: 32, marginBottom: 12 }}>🎨</div>
+      <div style={{ fontSize: 13 }}>资产将在生成后显示在此处</div>
+    </div>
+  )
+
+  const assets = parseAssets(text)
+  const groups: Record<string, AssetItem[]> = {}
+  for (const a of assets) {
+    if (!groups[a.type]) groups[a.type] = []
+    groups[a.type].push(a)
+  }
+
+  // Count total prompt nodes to be pushed
+  const totalPrompts = assets.reduce((acc, a) => acc + Math.max(a.prompts.length, 1), 0)
+
+  const handlePushToCanvas = () => {
+    const NODE_W = 300
+    const NODE_H = 240
+    const GAP_X  = 20
+    const GAP_Y  = 56
+    const typeOrder = ['人物', '场景', '道具']
+    let globalRow = 0
+
+    for (const type of typeOrder) {
+      const list = groups[type] || []
+      if (list.length === 0) continue
+
+      list.forEach((asset, assetIdx) => {
+        const icon = ASSET_TYPE_ICON[type] || ''
+        const prompts = asset.prompts.length > 0 ? asset.prompts : [{ label: '生图', prompt: asset.fields['描述'] || asset.name }]
+        prompts.forEach((p, pIdx) => {
+          const col = assetIdx * prompts.length + pIdx
+          const node = {
+            id: `asset_${type}_${asset.name}_${p.label}_${Date.now()}_${col}`,
+            type: 'imageGen',
+            position: { x: col * (NODE_W + GAP_X), y: globalRow * (NODE_H + GAP_Y) },
+            data: {
+              name: `${icon} ${asset.name}・${p.label}`,
+              presetPrompt: p.prompt,
+            },
+          }
+          window.dispatchEvent(new CustomEvent('add-node-to-canvas', { detail: { node } }))
+        })
+      })
+      globalRow++
+    }
+    setPushed(true)
+    // 推送完成后自动跳到画布
+    setTimeout(() => {
+      onSwitchToCanvas?.()
+    }, 800)
+    setTimeout(() => setPushed(false), 3000)
+  }
+
+  // streaming 时先显示纯文本
+  if (streaming && assets.length === 0) {
+    return (
+      <div style={{ fontSize: 13, lineHeight: 1.85, color: T.text, whiteSpace: 'pre-wrap', maxWidth: 860 }}>
+        {text}<span style={{ color: T.accent }}>▌</span>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ maxWidth: 860 }}>
+      {/* 工具栏 */}
+      {!streaming && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 16 }}>
+          {onDownload && (
+            <button onClick={onDownload} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 5, background: T.nodeSubtle, border: `1px solid ${T.border}`, color: T.textSub, cursor: 'pointer' }}>
+              ↓ 下载
+            </button>
+          )}
+          {assets.length > 0 && (
+            <button
+              onClick={handlePushToCanvas}
+              style={{
+                fontSize: 11, padding: '4px 14px', borderRadius: 5, cursor: 'pointer',
+                background: pushed ? 'rgba(80,200,100,0.15)' : `${T.accent}22`,
+                border: `1px solid ${pushed ? 'rgba(80,200,100,0.4)' : T.accent}`,
+                color: pushed ? 'rgba(80,200,100,0.9)' : T.accent, fontWeight: 600,
+                transition: 'all 0.3s',
+              }}
+            >
+              {pushed ? '✓ 正在跳转到画布...' : `→ 发送 ${totalPrompts} 个节点到画布`}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* 分组展示 */}
+      {(['人物', '场景', '道具'] as const).map(type => {
+        const list = groups[type]
+        if (!list || list.length === 0) return null
+        const color = ASSET_TYPE_COLOR[type] || T.accent
+        return (
+          <div key={type} style={{ marginBottom: 24 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, paddingBottom: 6, borderBottom: `1px solid ${T.border}` }}>
+              <span style={{ fontSize: 15 }}>{ASSET_TYPE_ICON[type]}</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color }}>{type}资产</span>
+              <span style={{ fontSize: 11, color: T.textMuted }}>共 {list.length} 个 · {list.reduce((s, a) => s + a.prompts.length, 0)} 条提示词</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 10 }}>
+              {list.map((asset, idx) => (
+                <div key={idx} style={{
+                  border: `1px solid ${T.border}`,
+                  borderRadius: 10, overflow: 'hidden',
+                  background: T.nodeSubtle,
+                }}>
+                  {/* 资产标题 */}
+                  <div style={{
+                    padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8,
+                    background: `${color}14`, borderBottom: `1px solid ${T.border}`,
+                  }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{asset.name}</span>
+                    {asset.fields['角色'] && <span style={{ fontSize: 11, color, background: `${color}22`, padding: '1px 6px', borderRadius: 4 }}>{asset.fields['角色']}</span>}
+                    {asset.fields['环境'] && <span style={{ fontSize: 11, color, background: `${color}22`, padding: '1px 6px', borderRadius: 4 }}>{asset.fields['环境']}</span>}
+                  </div>
+
+                  <div style={{ padding: '8px 12px' }}>
+                    {/* 描述字段 */}
+                    {['外形', '描述'].map(f => asset.fields[f] ? (
+                      <div key={f} style={{ fontSize: 12, color: T.textSub, marginBottom: 6, lineHeight: 1.6 }}>
+                        <span style={{ fontWeight: 600, color: T.textSub }}>{f}：</span>{asset.fields[f]}
+                      </div>
+                    ) : null)}
+
+                    {/* 多条提示词 */}
+                    {asset.prompts.length > 0 && (
+                      <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                        {asset.prompts.map((p, pi) => {
+                          const labelColor = PROMPT_LABEL_COLORS[pi % PROMPT_LABEL_COLORS.length]
+                          const copyKey = `${asset.name}_${p.label}`
+                          const isCopied = copiedKey === copyKey
+                          return (
+                            <div key={pi} style={{
+                              borderRadius: 5, border: `1px solid ${T.border}`,
+                              background: T.inputBg, overflow: 'hidden',
+                            }}>
+                              {/* 标签行 */}
+                              <div style={{
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                padding: '3px 8px', borderBottom: `1px solid ${T.border}`,
+                                background: `${labelColor}12`,
+                              }}>
+                                <span style={{ fontSize: 10, fontWeight: 700, color: labelColor }}>{p.label}</span>
+                                <button
+                                  onClick={() => copyPrompt(p.prompt, copyKey)}
+                                  style={{
+                                    fontSize: 10, padding: '1px 7px', borderRadius: 3, cursor: 'pointer', border: 'none',
+                                    background: isCopied ? 'rgba(80,200,100,0.2)' : `${labelColor}22`,
+                                    color: isCopied ? 'rgba(80,200,100,0.9)' : labelColor,
+                                    transition: 'all 0.2s',
+                                  }}
+                                >
+                                  {isCopied ? '✓ 已复制' : '复制'}
+                                </button>
+                              </div>
+                              {/* 提示词内容 */}
+                              <div style={{
+                                padding: '5px 8px',
+                                fontSize: 11, color: T.textMuted, fontFamily: 'monospace',
+                                lineHeight: 1.55, wordBreak: 'break-all',
+                              }}>
+                                {p.prompt}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })}
+      {streaming && <span style={{ color: T.accent }}>▌</span>}
+    </div>
+  )
+}
+
+// ── 集数大纲卡片渲染器 ─────────────────────────────────────────
+function EpisodeMapView({ text, T, streaming, onDownload }: { text: string; T: any; streaming: boolean; onDownload?: () => void }) {
+  if (!text) return (
+    <div style={{ textAlign: 'center', paddingTop: 80, color: T.textMuted }}>
+      <div style={{ fontSize: 32, marginBottom: 12 }}>📋</div>
+      <div style={{ fontSize: 13 }}>内容将在生成后显示在此处</div>
+    </div>
+  )
+  // 解析每行：第N集《集名》| 情节: ... | 钩子: ... | 结尾: ...
+  const lines = text.split('\n').filter(l => l.trim())
+  const episodes = lines.map(line => {
+    const epMatch = line.match(/^第(\d+)集[《<]?([^》>|]*)[》>]?/)
+    if (!epMatch) return { raw: line }
+    const num = epMatch[1]
+    const title = epMatch[2].trim()
+    const rest = line.slice(epMatch[0].length)
+    const fields: Record<string, string> = {}
+    const fieldPattern = /[|｜]\s*(情节|钩子|结尾)\s*[:：]\s*([^|｜]*)/g
+    let m
+    while ((m = fieldPattern.exec(rest)) !== null) {
+      fields[m[1]] = m[2].trim()
+    }
+    return { num, title, fields, raw: line }
+  })
+
+  return (
+    <div style={{ maxWidth: 760 }}>
+      {!streaming && onDownload && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+          <button onClick={onDownload} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 5, background: T.nodeSubtle, border: `1px solid ${T.border}`, color: T.textSub, cursor: 'pointer' }}>
+            ↓ 下载
+          </button>
+        </div>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {episodes.map((ep, i) => {
+          if (!ep.num) {
+            // 非集数行（可能是 AI 的前言）
+            return ep.raw.trim() ? (
+              <div key={i} style={{ fontSize: 12, color: T.textSub, padding: '4px 0' }}>{ep.raw}</div>
+            ) : null
+          }
+          return (
+            <div key={i} style={{
+              display: 'grid', gridTemplateColumns: '52px 1fr',
+              gap: 0, borderRadius: 7,
+              border: `1px solid ${T.border}`,
+              overflow: 'hidden',
+              background: T.nodeSubtle,
+            }}>
+              {/* 集号 */}
+              <div style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                padding: '10px 4px', background: `${T.accent}18`,
+                borderRight: `1px solid ${T.border}`,
+              }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.accent }}>第</div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: T.accent, lineHeight: 1 }}>{ep.num}</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.accent }}>集</div>
+              </div>
+              {/* 内容 */}
+              <div style={{ padding: '8px 12px' }}>
+                {ep.title && (
+                  <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 5 }}>《{ep.title}》</div>
+                )}
+                {ep.fields && Object.entries(ep.fields).map(([k, v]) => (
+                  <div key={k} style={{ display: 'flex', gap: 6, fontSize: 12, lineHeight: 1.6, marginTop: 2 }}>
+                    <span style={{ color: T.accent, fontWeight: 600, whiteSpace: 'nowrap', minWidth: 28 }}>{k}</span>
+                    <span style={{ color: T.textSub }}>{v}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        })}
+        {streaming && <span style={{ color: T.accent, padding: '4px 0' }}>▌</span>}
+      </div>
+    </div>
+  )
+}
+
+// ── 剧本内容渲染器（△行 / 场景头 / 对白）────────────────────
+function ScriptRenderer({ content, streaming, T }: { content: string; streaming: boolean; T: any }) {
+  const lines = content.split('\n')
+  const nodes: React.ReactNode[] = []
+
+  lines.forEach((line, i) => {
+    const raw = line
+
+    // 空行
+    if (!raw.trim()) {
+      nodes.push(<div key={i} style={{ height: 6 }} />)
+      return
+    }
+
+    // 集标题：第N集 标题（不含 |）
+    if (/^第\d+集/.test(raw) && !raw.includes('|')) {
+      nodes.push(
+        <div key={i} style={{
+          fontSize: 15, fontWeight: 800, color: T.text,
+          padding: '6px 0 10px', marginTop: 8, letterSpacing: 1,
+          borderBottom: `2px solid ${T.accent}`, marginBottom: 10,
+        }}>{raw.trim()}</div>
+      )
+      return
+    }
+
+    // 场景头：N-M 场景名 内/外 日/夜
+    if (/^\d+-\d+\s/.test(raw.trim())) {
+      nodes.push(
+        <div key={i} style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          margin: '14px 0 6px',
+          padding: '5px 12px', borderRadius: 5,
+          background: `${T.accent}22`,
+          border: `1px solid ${T.accent}44`,
+        }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, whiteSpace: 'nowrap' }}>【场景】</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{raw.trim()}</span>
+        </div>
+      )
+      return
+    }
+
+    // 出场角色行
+    if (/^出场角色[：:]/.test(raw.trim())) {
+      const cast = raw.replace(/^出场角色[：:]/, '').trim()
+      nodes.push(
+        <div key={i} style={{ fontSize: 12, color: T.textSub, marginBottom: 6, paddingLeft: 2 }}>
+          <span style={{ fontWeight: 600 }}>出场：</span>{cast}
+        </div>
+      )
+      return
+    }
+
+    // △ 动作行
+    if (/^△/.test(raw.trim())) {
+      nodes.push(
+        <div key={i} style={{
+          fontSize: 12, color: T.textMuted, fontStyle: 'italic',
+          paddingLeft: 16, margin: '2px 0', lineHeight: 1.7,
+          borderLeft: `2px solid ${T.borderMid}`,
+        }}>{raw.trim()}</div>
+      )
+      return
+    }
+
+    // 对白行：人名（情绪词）：台词 / 人名(OS)：... / 人名：...
+    const dialogMatch = raw.trim().match(/^([^\s（(：:]{1,10}(?:[（(][^）)]*[）)])?)\s*[：:](.*)$/)
+    if (dialogMatch) {
+      const nameRaw = dialogMatch[1]
+      const dialogue = dialogMatch[2].trim()
+      // 解析括号情绪词 / OS / VO
+      const nameClean = nameRaw.replace(/[（(][^）)]*[）)]/g, '').trim()
+      const emotionMatch = nameRaw.match(/[（(]([^）)]*)[）)]/)
+      const emotion = emotionMatch ? emotionMatch[1] : ''
+      const isInner = emotion === 'OS' || emotion === 'VO'
+      nodes.push(
+        <div key={i} style={{ margin: '3px 0 3px 0', lineHeight: 1.85 }}>
+          <span style={{ fontWeight: 700, color: T.text, fontSize: 13 }}>{nameClean}</span>
+          {emotion && (
+            <span style={{ fontSize: 11, color: isInner ? T.textMuted : T.accent, fontStyle: 'italic', marginLeft: 2 }}>（{emotion}）</span>
+          )}
+          <span style={{ color: T.textSub, fontSize: 11 }}>：</span>
+          <span style={{ color: T.text, fontSize: 13, fontStyle: isInner ? 'italic' : 'normal' }}>{dialogue}</span>
+        </div>
+      )
+      return
+    }
+
+    // 其他行（兜底）
+    nodes.push(
+      <div key={i} style={{ fontSize: 13, color: T.textSub, lineHeight: 1.75, margin: '2px 0' }}>{raw}</div>
+    )
+  })
+
+  return <>{nodes}</>
 }
 
 // ── 单集内容查看/编辑器 ──────────────────────────────────────
@@ -892,8 +1618,8 @@ function EpisodeContentView({ index, content, streaming, T, onChange }: {
           </button>
         )}
       </div>
-      <div style={{ fontSize: 13, lineHeight: 1.9, color: T.text, whiteSpace: 'pre-wrap', fontFamily: '"PingFang SC", "Microsoft YaHei", sans-serif' }}>
-        {content}
+      <div style={{ fontSize: 13, lineHeight: 1.9, color: T.text }}>
+        <ScriptRenderer content={content} streaming={streaming} T={T} />
         {streaming && <span style={{ color: T.accent }}>▌</span>}
       </div>
     </div>
@@ -901,12 +1627,12 @@ function EpisodeContentView({ index, content, streaming, T, onChange }: {
 }
 
 // ── 底部操作栏 ───────────────────────────────────────────────
-function ActionBar({ phase, busy, paused, hasBible, hasBios, hasMap, doneCount, totalEps, allDone,
-  onGenerateBible, onGenerateBios, onGenerateMap, onStartEpisodes, onPause, onResume, onSwitchToCanvas, onExtractAssets, onDownloadAll, T
+function ActionBar({ phase, busy, paused, hasBible, hasBios, hasAssets, hasMap, doneCount, totalEps, allDone,
+  onGenerateBible, onGenerateBios, onGenerateAssets, onGenerateMap, onStartEpisodes, onPause, onResume, onSwitchToCanvas, onExtractAssets, onDownloadAll, T
 }: {
-  phase: number; busy: boolean; paused: boolean; hasBible: boolean; hasBios: boolean; hasMap: boolean
+  phase: number; busy: boolean; paused: boolean; hasBible: boolean; hasBios: boolean; hasAssets: boolean; hasMap: boolean
   doneCount: number; totalEps: number; allDone: boolean
-  onGenerateBible: () => void; onGenerateBios: () => void; onGenerateMap: () => void
+  onGenerateBible: () => void; onGenerateBios: () => void; onGenerateAssets: () => void; onGenerateMap: () => void
   onStartEpisodes: () => void; onPause: () => void; onResume: () => void
   onSwitchToCanvas: () => void; onExtractAssets: () => void; onDownloadAll: () => void; T: any
 }) {
@@ -936,12 +1662,15 @@ function ActionBar({ phase, busy, paused, hasBible, hasBios, hasMap, doneCount, 
       {/* Step 2 — 角色小传 */}
       {hasBible && btn(hasBios ? '↺ 重新生成角色小传' : '② 生成角色小传', onGenerateBios, !hasBios, busy)}
 
-      {/* Step 3 — 集数大纲 */}
-      {hasBios && btn(hasMap ? '↺ 重新生成集数大纲' : '③ 生成集数大纲', onGenerateMap, !hasMap, busy)}
+      {/* Step 3 — 资产登记 */}
+      {hasBios && btn(hasAssets ? '↺ 重新生成资产登记' : '③ 生成资产登记', onGenerateAssets, !hasAssets, busy)}
 
-      {/* Step 4 — 逐集生成 */}
+      {/* Step 4 — 集数大纲 */}
+      {hasAssets && btn(hasMap ? '↺ 重新生成集数大纲' : '④ 生成集数大纲', onGenerateMap, !hasMap, busy)}
+
+      {/* Step 5 — 逐集生成 */}
       {hasMap && !allDone && !busy && !paused && (
-        btn(doneCount > 0 ? `④ 继续生成（${doneCount}/${totalEps}）` : '④ 开始逐集生成', onStartEpisodes, true, busy)
+        btn(doneCount > 0 ? `⑤ 继续生成（${doneCount}/${totalEps}）` : '⑤ 开始逐集生成', onStartEpisodes, true, busy)
       )}
       {hasMap && busy && (
         <button onClick={onPause} style={{ padding: '9px 20px', borderRadius: 7, fontSize: 13, fontWeight: 600, border: '1px solid rgba(239,68,68,0.4)', cursor: 'pointer', background: 'rgba(239,68,68,0.08)', color: 'rgba(239,68,68,0.9)' }}>

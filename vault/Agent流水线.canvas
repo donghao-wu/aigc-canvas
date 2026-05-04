@@ -1,0 +1,26 @@
+{
+  "nodes": [
+    {"id":"input","type":"text","text":"# 用户配置\n类型 / 风格 / 集数\n主角 / 题材 / 要求\n**🎨 视觉风格配置**","x":-600,"y":0,"width":200,"height":140,"color":"6"},
+    {"id":"bible","type":"file","file":"Agents/01-故事圣经.md","x":-300,"y":0,"width":200,"height":80},
+    {"id":"bios","type":"file","file":"Agents/02-角色小传.md","x":0,"y":0,"width":200,"height":80},
+    {"id":"assets","type":"file","file":"Agents/03-资产登记.md","x":300,"y":0,"width":200,"height":80},
+    {"id":"map","type":"file","file":"Agents/04-集数大纲.md","x":600,"y":0,"width":200,"height":80},
+    {"id":"episodes","type":"file","file":"Agents/05-逐集剧本.md","x":900,"y":0,"width":200,"height":80},
+    {"id":"summary","type":"file","file":"Agents/06-集数摘要.md","x":900,"y":140,"width":200,"height":80},
+    {"id":"canvas","type":"text","text":"# 生图画布\nimageGen 节点\n预填提示词","x":300,"y":160,"width":200,"height":100,"color":"4"},
+    {"id":"review","type":"file","file":"Design/审稿Agent设计.md","x":900,"y":-140,"width":200,"height":80,"color":"1"},
+    {"id":"styles","type":"file","file":"Styles/00-画风总览.md","x":300,"y":-160,"width":200,"height":80,"color":"3"}
+  ],
+  "edges": [
+    {"id":"e1","fromNode":"input","fromSide":"right","toNode":"bible","toSide":"left"},
+    {"id":"e2","fromNode":"bible","fromSide":"right","toNode":"bios","toSide":"left"},
+    {"id":"e3","fromNode":"bios","fromSide":"right","toNode":"assets","toSide":"left"},
+    {"id":"e4","fromNode":"assets","fromSide":"right","toNode":"map","toSide":"left"},
+    {"id":"e5","fromNode":"map","fromSide":"right","toNode":"episodes","toSide":"left"},
+    {"id":"e6","fromNode":"episodes","fromSide":"bottom","toNode":"summary","toSide":"top"},
+    {"id":"e7","fromNode":"summary","fromSide":"left","toNode":"episodes","toSide":"bottom","label":"前情上下文"},
+    {"id":"e8","fromNode":"assets","fromSide":"bottom","toNode":"canvas","toSide":"top","label":"推送节点"},
+    {"id":"e9","fromNode":"styles","fromSide":"bottom","toNode":"assets","toSide":"top","label":"风格标签"},
+    {"id":"e10","fromNode":"episodes","fromSide":"top","toNode":"review","toSide":"bottom","label":"待实现"}
+  ]
+}

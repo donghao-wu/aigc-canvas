@@ -1,0 +1,196 @@
+{
+  "main": {
+    "id": "afd7f2c97eba3135",
+    "type": "split",
+    "children": [
+      {
+        "id": "820106edca7a05a2",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "2bc48442b3e38ce0",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Agents/06-集数摘要.md",
+                "mode": "preview",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "06-集数摘要"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "d5f8429e758a4266",
+    "type": "split",
+    "children": [
+      {
+        "id": "cf48d3facf8c0e4e",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "4bf4ea0c740e4635",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "文件列表"
+            }
+          },
+          {
+            "id": "dbe819a4cdf8d394",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "搜索"
+            }
+          },
+          {
+            "id": "d7400fe5f4448b5a",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "书签"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "fb098c4580712c78",
+    "type": "split",
+    "children": [
+      {
+        "id": "bb3f731968820f35",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "e47fa605ff9dea4e",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "Agents/06-集数摘要.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "06-集数摘要 的反向链接列表"
+            }
+          },
+          {
+            "id": "3af2e675760c959b",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "Agents/06-集数摘要.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "06-集数摘要 的出链列表"
+            }
+          },
+          {
+            "id": "0a27245319b17e14",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "标签"
+            }
+          },
+          {
+            "id": "bc8e24b2ab5144f6",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "添加笔记属性"
+            }
+          },
+          {
+            "id": "384893cc9c66ce28",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "Agents/06-集数摘要.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "06-集数摘要 的大纲"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:打开快速切换": false,
+      "graph:查看关系图谱": false,
+      "canvas:新建白板": false,
+      "templates:插入模板": false,
+      "bases:新建数据库": false
+    }
+  },
+  "active": "2bc48442b3e38ce0",
+  "lastOpenFiles": [
+    "Agents/05-逐集剧本.md",
+    "Agents/03-资产登记.md",
+    "Agents/02-角色小传.md",
+    "Agents/01-故事圣经.md",
+    "Agents/00-架构总览.md",
+    "Research/NanoBanana生图技巧.md",
+    "Design/审稿Agent设计.md",
+    "Agents/06-集数摘要.md",
+    "Agents/04-集数大纲.md"
+  ]
+}
