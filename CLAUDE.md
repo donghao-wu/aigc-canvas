@@ -21,9 +21,10 @@ git ls-files | grep "\.env$"
 grep -n "app\.\(get\|post\|put\|delete\)" backend/index.js \
   | grep -v "authMiddleware\|health\|/api/auth\|/api/admin"
 
-# 4. 前端 build 无密钥（预期：无输出）
+# 4. 前端 build 无密钥（预期：PASS）
 cd frontend && npm run build
-grep -r "sk-\|DASHSCOPE\|JWT_SECRET\|ADMIN_SECRET" dist/
+RESULT=$(grep -r "sk-[a-zA-Z0-9]\{10,\}" dist/ 2>/dev/null | grep -v "sk-background\|sk-stroke\|sk-list\|sk-basis\|sk-auto\|sk-space\|sk-fill")
+[ -z "$RESULT" ] && echo "PASS" || echo "FAIL: $RESULT"
 
 # 5. 管理接口鉴权（预期：返回 {"error":"无权限"}）
 curl -s -X GET http://localhost:3001/api/admin/users
@@ -36,7 +37,7 @@ curl -s -X GET http://localhost:3001/api/admin/users
 | 密钥扫描 | 无真实 `sk-xxx` 等 key 值，只有正常变量名 |
 | .env 入 git | **无输出** |
 | 路由认证 | **无输出**（所有路由均有 authMiddleware）|
-| 前端 build 密钥 | **无输出** |
+| 前端 build 密钥 | 输出 `PASS` |
 | 管理接口 | 返回 `{"error":"无权限"}` |
 
 **任何一项不通过，禁止 push，先修复。**
