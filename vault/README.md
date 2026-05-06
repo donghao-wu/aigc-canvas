@@ -34,6 +34,24 @@
 
 ## Changelog
 
+### 2026-05-06 — Token Tracking 修复 + 成员管理 UI + 动态下一步面板
+
+**Token tracking（自上线起一直失效）**
+- `ScriptWorkbench` 的 6 个 `streamSSE` 调用全部补入 `projectId`
+- 现在每次 Agent 调用结束后都会正确写入 `project_stats` 和 `events` 表
+
+**成员管理 UI（API 早已完整，但一直没有前端入口）**
+- `StudioHeader` 新增 `projectId` prop + 成员下拉面板
+  - 展示所有成员 + 角色标签（所有者 / 编辑 / 只读）
+  - 按用户名邀请，默认 editor 权限
+  - 非所有者成员可一键移除（X 按钮）
+  - 打开面板时自动拉取最新列表，点外部自动关闭
+- `ScriptWorkbench`、`AssetLibrary`、画布 `StudioHeader` 全部传入 `projectId`
+
+**"下一步" 面板动态化（原来 3 项全是写死的 ✓）**
+- 改为读取最近更新项目的 `stagesCompleted` + `imageGenCount`
+- 已完成步骤显示绿色 ✓，待完成显示琥珀色 →，点击直接跳转到对应项目
+
 ### 2026-05-04 — 安全加固 + 死代码清理（50 人生产准备审计）
 
 **安全**
