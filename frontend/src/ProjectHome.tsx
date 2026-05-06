@@ -675,29 +675,84 @@ export default function ProjectHome({ onOpen, username, onLogout }: Props) {
               </PanelCard>
 
               <PanelCard title="下一步" eyebrow="Next" T={T} cardBg={cardBg}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-                  {[
-                    ['剧本工作台', '完成故事圣经、角色小传和资产登记'],
-                    ['资产库', '生成角色三视图和场景多角度参考'],
-                    ['画布', '把资产送入节点画布开始生图排布'],
-                  ].map(([title, desc]) => (
-                    <div key={title} style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 10,
-                      padding: 10,
-                      borderRadius: 8,
-                      background: T.nodeSubtle,
-                      border: `1px solid ${T.border}`,
-                    }}>
-                      <Check size={15} color={T.accent} />
-                      <div>
-                        <div style={{ fontSize: 12, fontWeight: 750 }}>{title}</div>
-                        <div style={{ fontSize: 11, color: T.textMuted, marginTop: 3 }}>{desc}</div>
-                      </div>
+                {(() => {
+                  // 取最近更新的项目计算下一步
+                  const latest = productionProjects[0]
+                  const completed = latest?.stagesCompleted || []
+                  const steps: Array<{
+                    title: string; desc: string
+                    done: boolean; tab: 'workbench' | 'assets' | 'canvas'
+                  }> = [
+                    {
+                      title: '剧本工作台',
+                      desc: latest
+                        ? completed.includes('asset_registry')
+                          ? `《${latest.name}》资产登记已完成`
+                          : `《${latest.name}》— 完成故事圣经、角色小传和资产登记`
+                        : '新建项目后开始故事圣经',
+                      done: completed.includes('asset_registry'),
+                      tab: 'workbench',
+                    },
+                    {
+                      title: '资产库',
+                      desc: latest
+                        ? (latest.imageGenCount ?? 0) > 0
+                          ? `《${latest.name}》已生成 ${latest.imageGenCount} 张图`
+                          : `《${latest.name}》— 生成角色三视图和场景多角度参考`
+                        : '生成角色三视图和场景多角度参考',
+                      done: (latest?.imageGenCount ?? 0) > 0,
+                      tab: 'assets',
+                    },
+                    {
+                      title: '画布',
+                      desc: latest
+                        ? completed.includes('image_gen') || completed.includes('video_gen')
+                          ? `《${latest.name}》画布已有生图记录`
+                          : `《${latest.name}》— 把资产送入节点画布排布生图`
+                        : '把资产送入节点画布开始生图排布',
+                      done: completed.includes('image_gen') || completed.includes('video_gen'),
+                      tab: 'canvas',
+                    },
+                  ]
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                      {steps.map(s => (
+                        <button
+                          key={s.title}
+                          onClick={() => latest && onOpen({ id: latest.id, name: latest.name })}
+                          disabled={!latest}
+                          style={{
+                            textAlign: 'left',
+                            display: 'flex', alignItems: 'center', gap: 10,
+                            padding: 10, borderRadius: 8,
+                            background: T.nodeSubtle,
+                            border: `1px solid ${s.done ? 'rgba(104,211,145,0.25)' : T.border}`,
+                            cursor: latest ? 'pointer' : 'default',
+                            color: T.text,
+                            opacity: !latest ? 0.5 : 1,
+                          }}
+                          onMouseEnter={e => { if (latest) e.currentTarget.style.borderColor = T.borderMid }}
+                          onMouseLeave={e => { e.currentTarget.style.borderColor = s.done ? 'rgba(104,211,145,0.25)' : T.border }}
+                        >
+                          <div style={{
+                            width: 22, height: 22, borderRadius: 7, flexShrink: 0,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            background: s.done ? 'rgba(104,211,145,0.12)' : 'rgba(201,152,42,0.1)',
+                            border: `1px solid ${s.done ? 'rgba(104,211,145,0.3)' : 'rgba(201,152,42,0.2)'}`,
+                          }}>
+                            {s.done
+                              ? <Check size={12} color="rgba(104,211,145,0.9)" />
+                              : <ArrowRight size={12} color={T.accent} />}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12, fontWeight: 750 }}>{s.title}</div>
+                            <div style={{ fontSize: 11, color: T.textMuted, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.desc}</div>
+                          </div>
+                        </button>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  )
+                })()}
               </PanelCard>
             </div>
           </section>

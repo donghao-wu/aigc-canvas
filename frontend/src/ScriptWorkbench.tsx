@@ -241,7 +241,7 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
 
     let full = ''
     streamSSE(
-      { mode: 'story_bible', ...params },
+      { mode: 'story_bible', projectId, ...params },
       chunk => { full += chunk; setStreamBuf(full) },
       fullText => {
         updateData({ storyBible: fullText, params }, true)
@@ -261,7 +261,7 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
 
     let full = ''
     streamSSE(
-      { mode: 'character_bios', storyBible: data.storyBible },
+      { mode: 'character_bios', projectId, storyBible: data.storyBible },
       chunk => { full += chunk; setStreamBuf(full) },
       fullText => {
         updateData({ characterBios: fullText }, true)
@@ -281,7 +281,7 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
 
     let full = ''
     streamSSE(
-      { mode: 'asset_registry', storyBible: data.storyBible, characterBios: data.characterBios, styleConfig },
+      { mode: 'asset_registry', projectId, storyBible: data.storyBible, characterBios: data.characterBios, styleConfig },
       chunk => { full += chunk; setStreamBuf(full) },
       fullText => {
         updateData({ assetRegistry: fullText, styleConfig }, true)
@@ -301,7 +301,7 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
 
     let full = ''
     streamSSE(
-      { mode: 'episode_map', storyBible: data.storyBible, characterBios: data.characterBios, assetRegistry: data.assetRegistry, episodes: params.episodes },
+      { mode: 'episode_map', projectId, storyBible: data.storyBible, characterBios: data.characterBios, assetRegistry: data.assetRegistry, episodes: params.episodes },
       chunk => { full += chunk; setStreamBuf(full) },
       fullText => {
         const map = parseEpisodeMap(fullText)
@@ -357,6 +357,7 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
         streamSSE(
           {
             mode: 'write_episode',
+            projectId,
             storyBible: d2.storyBible,
             characterBios: d2.characterBios,
             assetRegistry: d2.assetRegistry,
@@ -388,7 +389,7 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
       if (!episodeError && epContent) {
         await new Promise<void>(resolve => {
           streamSSE(
-            { mode: 'summarize_episode', episodeContent: epContent, episodeIndex: i },
+            { mode: 'summarize_episode', projectId, episodeContent: epContent, episodeIndex: i },
             chunk => { summary += chunk },
             _full => { resolve() },
             _err => { resolve() },
@@ -535,6 +536,7 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
       <StudioHeader
         projectName={projectName}
         active="script"
+        projectId={projectId}
         onHome={onHome}
         onSwitchToCanvas={onSwitchToCanvas}
         onSwitchToAssets={onSwitchToAssets}

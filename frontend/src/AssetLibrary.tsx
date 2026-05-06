@@ -242,6 +242,7 @@ export default function AssetLibrary({ projectId, projectName, onHome, onSwitchT
       <StudioHeader
         projectName={projectName}
         active="assets"
+        projectId={projectId}
         onHome={onHome}
         onSwitchToScript={onSwitchToWorkbench}
         onSwitchToCanvas={onSwitchToCanvas}

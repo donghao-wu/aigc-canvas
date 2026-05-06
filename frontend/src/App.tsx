@@ -377,6 +377,7 @@ function Canvas({ project, onHome, onSwitchToWorkbench, onSwitchToAssets }: { pr
           <StudioHeader
             projectName={project.name}
             active="canvas"
+            projectId={project.id}
             onHome={onHome}
             onSwitchToScript={onSwitchToWorkbench}
             onSwitchToAssets={onSwitchToAssets}
