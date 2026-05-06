@@ -4,12 +4,11 @@ import EditableTitle from './EditableTitle'
 import { useTheme } from '../ThemeContext'
 import axios from 'axios'
 
-// ── 模型配置 ─────────────────────────────────────────────────
-const SORA_MODELS = [
-  { id: 'sora_video2',               label: 'Sora 2 竖屏',    desc: '704×1280 · 10s' },
-  { id: 'sora_video2-landscape',     label: 'Sora 2 横屏',    desc: '1280×704 · 10s' },
-  { id: 'sora_video2-15s',           label: 'Sora 2 竖屏 长', desc: '704×1280 · 15s' },
-  { id: 'sora_video2-landscape-15s', label: 'Sora 2 横屏 长', desc: '1280×704 · 15s' },
+// ── 模型配置（只包含后端实际支持的 WAN 模型）────────────────
+const WAN_MODELS = [
+  { id: 'wan_landscape', label: 'WAN 2.1 横屏', desc: '1280×720' },
+  { id: 'wan_portrait',  label: 'WAN 2.1 竖屏', desc: '720×1280' },
+  { id: 'wan_square',    label: 'WAN 2.1 方形', desc: '960×960'  },
 ]
 
 // 主题色（蓝紫）
@@ -43,13 +42,12 @@ export default function VideoGenNode({ id, data }: NodeProps) {
   const nodeName = (data as Record<string, unknown>)?.name as string || '生视频'
   const handleRename = (v: string) =>
     setNodes(nds => nds.map(n => n.id === id ? { ...n, data: { ...n.data, name: v } } : n))
-  const [model,     setModel]     = useState('sora_video2')
+  const [model,     setModel]     = useState('wan_landscape')
   const [prompt,    setPrompt]    = useState('')
   const [status,    setStatus]    = useState<VideoStatus>('idle')
   const [progress,  setProgress]  = useState<number | null>(null)
   const [videoUrl,  setVideoUrl]  = useState<string | null>(null)
   const [taskId,    setTaskId]    = useState<string | null>(null)
-  const [taskType,  setTaskType]  = useState<'sora' | 'veo'>('sora')
   const [error,     setError]     = useState<string | null>(null)
   const [elapsed,   setElapsed]   = useState(0)
 
@@ -63,7 +61,7 @@ export default function VideoGenNode({ id, data }: NodeProps) {
   }, [])
 
   // 开始轮询
-  const startPolling = useCallback((tId: string, tType: 'sora' | 'veo') => {
+  const startPolling = useCallback((tId: string) => {
     setElapsed(0)
     let failCount = 0  // 连续失败计数，防止偶发 failed 误判
 
@@ -74,7 +72,7 @@ export default function VideoGenNode({ id, data }: NodeProps) {
     pollRef.current = setInterval(async () => {
       try {
         const { data } = await axios.get('/api/video-status', {
-          params: { type: tType, taskId: tId },
+          params: { taskId: tId },
         })
 
         if (data.progress != null) setProgress(data.progress)
@@ -121,11 +119,10 @@ export default function VideoGenNode({ id, data }: NodeProps) {
         model,
       })
 
-      const { taskId: tId, type: tType } = data
+      const { taskId: tId } = data
       setTaskId(tId)
-      setTaskType(tType)
       setStatus('processing')
-      startPolling(tId, tType)
+      startPolling(tId)
 
     } catch (err: unknown) {
       const msg = axios.isAxiosError(err)
@@ -186,7 +183,7 @@ export default function VideoGenNode({ id, data }: NodeProps) {
             color: T.text,
           }}
         >
-          {SORA_MODELS.map(m => (
+          {WAN_MODELS.map(m => (
             <option key={m.id} value={m.id} style={{ background: T.nodeBg, color: T.text }}>
               {m.label}  ·  {m.desc}
             </option>
@@ -306,7 +303,7 @@ export default function VideoGenNode({ id, data }: NodeProps) {
             {/* 下载按钮 */}
             <a
               href={videoUrl}
-              download={`video-${taskType}-${Date.now()}.mp4`}
+              download={`video-wan-${Date.now()}.mp4`}
               target="_blank"
               rel="noopener noreferrer"
               className="w-full py-2 rounded-xl text-xs text-center transition-all block"

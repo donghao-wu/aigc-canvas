@@ -26,6 +26,7 @@ import {
 import { useTheme } from './ThemeContext'
 import type { DbAsset } from './types/asset'
 import { TYPE_LABEL } from './types/asset'
+import { authImageUrl } from './lib/imageUrl'
 
 interface ProjectMeta {
   id: string
@@ -1219,7 +1220,7 @@ function AssetTile({ asset, T, onClick }: { asset: DbAsset; T: any; onClick: () 
         overflow: 'hidden',
       }}>
         {asset.imageUrl ? (
-          <img src={asset.imageUrl} alt={asset.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          <img src={authImageUrl(asset.imageUrl)} alt={asset.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
         ) : (
           <Boxes size={26} color={TYPE_ACCENT[asset.type]} />
         )}

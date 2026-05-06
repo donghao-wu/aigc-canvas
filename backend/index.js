@@ -5,7 +5,6 @@ const axios   = require('axios');
 const fs      = require('fs');
 const path    = require('path');
 const crypto  = require('crypto');
-const bcrypt  = require('bcryptjs');
 const jwt     = require('jsonwebtoken');
 const multer  = require('multer');
 
@@ -115,13 +114,45 @@ function migrateFromJson() {
 
 migrateFromJson();
 
-// ── 静态文件 ──────────────────────────────────────────────────
+// ── 静态文件目录（不再直接 serve，改为鉴权路由）────────────────
 const GENERATED_DIR = storage.GENERATED_DIR;
 const UPLOADS_DIR   = path.join(__dirname, 'uploads');
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
-app.use('/generated', express.static(GENERATED_DIR));
-app.use('/uploads',   express.static(UPLOADS_DIR));
+// 图片鉴权中间件：支持 Bearer header 或 ?token= 查询参数。
+// 用于 <img src="/generated/...?token=..."> 场景。
+function authMiddlewareFile(req, res, next) {
+  const header = req.headers['authorization'] || '';
+  const token  = header.startsWith('Bearer ') ? header.slice(7)
+               : (req.query.token || null);
+  if (!token) return res.status(401).end();
+  try {
+    jwt.verify(token, JWT_SECRET);
+    next();
+  } catch {
+    res.status(401).end();
+  }
+}
+
+// /generated/:filename — 经鉴权后才提供生成图片
+app.get('/generated/:filename', authMiddlewareFile, (req, res) => {
+  const filename = path.basename(req.params.filename); // 防 path traversal
+  const filePath = path.join(GENERATED_DIR, filename);
+  if (!filePath.startsWith(GENERATED_DIR + path.sep) && filePath !== GENERATED_DIR) {
+    return res.status(400).end();
+  }
+  res.sendFile(filePath, err => { if (err && !res.headersSent) res.status(404).end(); });
+});
+
+// /uploads/:filename — 同上
+app.get('/uploads/:filename', authMiddlewareFile, (req, res) => {
+  const filename = path.basename(req.params.filename);
+  const filePath = path.join(UPLOADS_DIR, filename);
+  if (!filePath.startsWith(UPLOADS_DIR + path.sep) && filePath !== UPLOADS_DIR) {
+    return res.status(400).end();
+  }
+  res.sendFile(filePath, err => { if (err && !res.headersSent) res.status(404).end(); });
+});
 
 // ── 图片上传 (multer) ─────────────────────────────────────────
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
@@ -390,10 +421,6 @@ app.delete('/api/upload/:filename', authMiddleware, (req, res) => {
     res.json({ ok: true });
   } catch { res.status(500).json({ error: '删除失败' }); }
 });
-
-// ── 项目存储 ──────────────────────────────────────────────────
-const PROJECTS_ROOT = path.join(__dirname, 'projects');
-if (!fs.existsSync(PROJECTS_ROOT)) fs.mkdirSync(PROJECTS_ROOT, { recursive: true });
 
 // ── helper: check project membership ─────────────────────────────────────────
 function requireProjectAccess(projectId, userId, minRole = 'viewer') {

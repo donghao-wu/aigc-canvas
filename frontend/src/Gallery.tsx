@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import axios from 'axios'
 import { useTheme } from './ThemeContext'
+import { authImageUrl } from './lib/imageUrl'
 
 interface GalleryItem {
   id: string
@@ -263,7 +264,7 @@ export default function Gallery({ visible, onClose }: { visible: boolean; onClos
                 }}
               >
                 <img
-                  src={item.url}
+                  src={authImageUrl(item.url)}
                   alt={item.prompt}
                   className="w-full h-full"
                   style={{ objectFit: 'cover' }}
@@ -360,7 +361,7 @@ export default function Gallery({ visible, onClose }: { visible: boolean; onClos
             onClick={e => e.stopPropagation()}
           >
             <img
-              src={lightbox.url}
+              src={authImageUrl(lightbox.url)}
               alt={lightbox.prompt}
               style={{ maxWidth: '85vw', maxHeight: '75vh', objectFit: 'contain', display: 'block' }}
             />

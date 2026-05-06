@@ -8,6 +8,7 @@ import axios from 'axios'
 import { useTheme } from './ThemeContext'
 import StudioHeader from './StudioHeader'
 import type { AssetType } from './types/asset'
+import { authImageUrl } from './lib/imageUrl'
 
 // ── 类型 ───────────────────────────────────────────────────────
 interface AssetPrompt {
@@ -349,7 +350,7 @@ export default function AssetLibrary({ projectId, projectName, onHome, onSwitchT
             }}>
               {selected.imageUrl ? (
                 <img
-                  src={selected.imageUrl}
+                  src={authImageUrl(selected.imageUrl)}
                   alt={selected.name}
                   style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                 />
@@ -600,7 +601,7 @@ function AssetCard({ asset, selected, onClick, T, theme, accent, typeBg }: {
         overflow: 'hidden', position: 'relative',
       }}>
         {asset.imageUrl ? (
-          <img src={asset.imageUrl} alt={asset.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          <img src={authImageUrl(asset.imageUrl)} alt={asset.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
         ) : (
           <div style={{
             width: '100%', height: '100%',
@@ -661,7 +662,7 @@ function PromptAngleCard({ prompt, onGenerate, onDelete, generating, T, theme }:
       {/* Image row */}
       {prompt.imageUrl ? (
         <div style={{ width: '100%', aspectRatio: '16/9', position: 'relative', overflow: 'hidden' }}>
-          <img src={prompt.imageUrl} alt={prompt.label} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          <img src={authImageUrl(prompt.imageUrl)} alt={prompt.label} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
           <div style={{
             position: 'absolute', inset: 0, opacity: 0, transition: 'opacity 0.15s',
             background: 'rgba(0,0,0,0.45)',

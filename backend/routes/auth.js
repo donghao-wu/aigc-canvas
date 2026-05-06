@@ -1,11 +1,22 @@
-const express  = require('express');
-const bcrypt   = require('bcryptjs');
-const jwt      = require('jsonwebtoken');
-const fs       = require('fs');
-const path     = require('path');
-const db       = require('../db');
+const express    = require('express');
+const bcrypt     = require('bcryptjs');
+const jwt        = require('jsonwebtoken');
+const fs         = require('fs');
+const path       = require('path');
+const rateLimit  = require('express-rate-limit');
+const db         = require('../db');
 
 const router     = express.Router();
+
+// ── 登录速率限制：同一 IP 每分钟最多 10 次尝试 ────────────────
+const loginLimiter = rateLimit({
+  windowMs:         60 * 1000,  // 1 分钟滑动窗口
+  max:              10,          // 最多 10 次
+  standardHeaders:  true,
+  legacyHeaders:    false,
+  message:          { error: '登录尝试过于频繁，请 1 分钟后重试' },
+  skipSuccessfulRequests: true,  // 成功登录不计入限额
+});
 function requireSecretEnv(name) {
   const value = process.env[name];
   if (!value || value.startsWith('your-') || value.startsWith('changeme-')) {
@@ -19,7 +30,7 @@ const ADMIN_SECRET = requireSecretEnv('ADMIN_SECRET');
 const PROJECTS_ROOT = path.join(__dirname, '..', 'projects');
 
 // POST /api/auth/login
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: '用户名和密码不能为空' });
 

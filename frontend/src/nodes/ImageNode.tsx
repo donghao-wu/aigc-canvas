@@ -3,6 +3,7 @@ import { Handle, Position, type NodeProps, useReactFlow } from '@xyflow/react'
 import axios from 'axios'
 import EditableTitle from './EditableTitle'
 import { useTheme } from '../ThemeContext'
+import { authImageUrl } from '../lib/imageUrl'
 
 export default function ImageNode({ id, data }: NodeProps) {
   const { base64, mimeType, prompt, imageUrl } = data as {
@@ -14,7 +15,7 @@ export default function ImageNode({ id, data }: NodeProps) {
   const handleRename = (v: string) =>
     setNodes(nds => nds.map(n => n.id === id ? { ...n, data: { ...n.data, name: v } } : n))
 
-  const imgSrc = imageUrl ?? `data:${mimeType || 'image/jpeg'};base64,${base64}`
+  const imgSrc = imageUrl ? authImageUrl(imageUrl) : `data:${mimeType || 'image/jpeg'};base64,${base64}`
   const [hovered,    setHovered]    = useState(false)
   const [lightbox,   setLightbox]   = useState(false)
   const [analyzing,  setAnalyzing]  = useState(false)
