@@ -34,6 +34,22 @@
 
 ## Changelog
 
+### 2026-05-04 — 安全加固 + 死代码清理（50 人生产准备审计）
+
+**安全**
+- 登录接口加 rate-limit：同一 IP 每分钟最多 10 次失败尝试（`express-rate-limit`）
+- `/generated/` 和 `/uploads/` 从无鉴权静态文件改为鉴权动态路由，支持 Bearer header 或 `?token=` 查询参数
+- 前端新增 `lib/imageUrl.ts` → `authImageUrl()`，所有渲染本地图片的 `<img>` 统一追加 token
+
+**死代码清理**
+- 删除 `test_ref.js`（遗留调试脚本）
+- 移除 `backend/index.js` 中无用的 `bcrypt` require 和 `PROJECTS_ROOT` 目录创建
+- `VideoGenNode` 模型列表改为只展示后端实际支持的 WAN 2.1 三种模式，删除 Sora/Veo 假选项
+
+**遗留待做（未本次实现）**
+- Per-user API 配额控制（每日 token 上限 + 429 熔断）
+- Dashboard 全局统计改为仅展示当前用户聚合数据
+
 ### 2026-05-04 — UI 第二阶段：项目内工作区 Chrome
 
 - `ProjectHome.tsx` 左侧 5 个模块补齐真实内容切换：生产总览、项目队列、剧本流水线、视觉资产、视频交付
