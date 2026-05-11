@@ -630,10 +630,11 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
         onDownload={data.episodeMapText && !busy ? () => downloadText(`${projectName}-集数大纲.txt`, data.episodeMapText) : undefined} />
     }
     if (typeof selected === 'number') {
-      const ep = data.episodes[selected]
-      const isGeneratingThis = busy && data.episodes[selected]?.status === 'generating'
+      const ep: EpisodeDraft | undefined = data.episodes[selected]
+      const isGeneratingThis = busy && ep?.status === 'generating'
       const displayText = isGeneratingThis ? streamBuf : (ep?.content || '')
       const isSbGenerating = sbBusy === selected
+      const sbCount = ep?.storyboard?.length ?? 0
       return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
           {/* Sub-tab bar: 剧本 / 分镜 */}
@@ -641,7 +642,6 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
             {(['script', 'storyboard'] as const).map(tab => {
               const labels: Record<string, string> = { script: '📄 剧本', storyboard: '📽 分镜' }
               const isActive = epSubTab === tab
-              const hasSb = (ep?.storyboard?.length || 0) > 0
               return (
                 <button key={tab} onClick={() => setEpSubTab(tab)} style={{
                   padding: '8px 18px', fontSize: 12, fontWeight: isActive ? 700 : 400,
@@ -650,9 +650,9 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
                   cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
                 }}>
                   {labels[tab]}
-                  {tab === 'storyboard' && hasSb && (
+                  {tab === 'storyboard' && sbCount > 0 && (
                     <span style={{ fontSize: 10, background: 'rgba(80,200,100,0.2)', color: 'rgba(80,200,100,0.9)', borderRadius: 8, padding: '1px 5px' }}>
-                      {ep!.storyboard!.length}镜
+                      {sbCount}镜
                     </span>
                   )}
                   {tab === 'storyboard' && isSbGenerating && (
@@ -669,7 +669,7 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
               ? <EpisodeContentView index={selected} content={displayText} streaming={isGeneratingThis} T={T} onChange={c => updateEpisodeContent(selected, c)} />
               : <StoryboardPanel
                   episodeIndex={selected}
-                  episode={ep}
+                  episode={ep ?? { index: selected, content: '', summary: '', status: 'pending' }}
                   busy={isSbGenerating}
                   streamBuf={sbBuf}
                   sbError={sbError}
