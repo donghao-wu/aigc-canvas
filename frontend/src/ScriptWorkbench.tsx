@@ -364,13 +364,14 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
     for (let i = startIndex; i < params.episodes; i++) {
       if (pauseRef.current || controller.signal.aborted) break
 
-      // 标记当前集为 generating
+      // 标记当前集为 generating，切换到剧本 tab 以显示进度
       setData(prev => {
         const eps = [...prev.episodes]
         if (eps[i]) eps[i] = { ...eps[i], status: 'generating' }
         return { ...prev, episodes: eps }
       })
       setSelected(i)
+      setEpSubTab('script')   // 确保显示剧本进度，不卡在分镜 tab
       setStreamBuf('')
 
       const d2 = dataRef.current
@@ -448,7 +449,7 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
 
     setBusy(false)
     if (pauseRef.current) setPaused(true)
-  }, [params.episodes, params.duration, saveToServer])
+  }, [params.episodes, params.duration, saveToServer, setEpSubTab])
 
   const handleStartEpisodes = useCallback(() => {
     const startFrom = data.episodes.findIndex(e => e.status === 'pending' || e.status === 'error')
@@ -636,7 +637,7 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
       const isSbGenerating = sbBusy === selected
       const sbCount = ep?.storyboard?.length ?? 0
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
           {/* Sub-tab bar: 剧本 / 分镜 */}
           <div style={{ display: 'flex', borderBottom: `1px solid ${T.border}`, flexShrink: 0, paddingLeft: 4 }}>
             {(['script', 'storyboard'] as const).map(tab => {
@@ -666,7 +667,7 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
           {/* Content area */}
           <div style={{ flex: 1, overflow: 'auto', padding: 24 }}>
             {epSubTab === 'script'
-              ? <EpisodeContentView index={selected} content={displayText} streaming={isGeneratingThis} T={T} onChange={c => updateEpisodeContent(selected, c)} />
+              ? <EpisodeContentView key={selected} index={selected} content={displayText} streaming={isGeneratingThis} T={T} onChange={c => updateEpisodeContent(selected, c)} />
               : <StoryboardPanel
                   episodeIndex={selected}
                   episode={ep ?? { index: selected, content: '', summary: '', status: 'pending' }}
@@ -756,7 +757,9 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
 
         {/* 主内容区 */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <div style={{ flex: 1, overflow: 'auto', padding: selected === 'params' ? 0 : typeof selected === 'number' ? 0 : 24 }}>
+          <div style={typeof selected === 'number'
+            ? { flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }
+            : { flex: 1, overflow: 'auto', padding: selected === 'params' ? 0 : 24 }}>
             {selected === 'params'
               ? (
                 <ParamsForm
