@@ -771,40 +771,45 @@ const SUMMARIZE_PROMPT = `请用3句话概括以下剧本集数，要求：
 第3句：结尾状态（这集结束时各主要角色处于什么状态/位置）
 只输出3句话，不要标题，不要序号。`;
 
-const STORYBOARD_PROMPT = `你是专业的短剧分镜师。根据提供的剧本，选取 3–5 个最具戏剧张力的时刻，生成总时长约 15 秒的视频分镜方案。
+const STORYBOARD_PROMPT = `你是专业的短剧影视导演和分镜师。根据提供的剧本，选取 3–5 个关键叙事节点，每个节点创作一段 15 秒的完整视频场景。
+
+每段视频是一个独立的叙事单元（15秒），内部可以有镜头切换、运镜变化、情绪递进，像一个完整的小故事。
 
 ## 输出格式
-严格输出 JSON 数组（不加任何 markdown 代码块，不加说明文字），每个镜头对象包含以下字段：
-- shotNumber (number): 镜头序号，从 1 开始
-- duration (number): 时长秒数，3–5 之间，所有镜头总计约 15 秒
-- shotType (string): 景别，值为 close/medium/full/wide 之一
-- cameraMove (string): 运镜，值为 static/push_in/pull_out/pan_left/pan_right/track/crane_up 之一
-- scene (string): 场景名称，必须与资产 DNA 表中的名称完全一致，无则填空字符串
+严格输出 JSON 数组（不加任何 markdown 代码块，不加说明文字），每个视频场景包含以下字段：
+- shotNumber (number): 场景序号，从 1 开始
+- duration (number): 固定为 15
+- scene (string): 主要场景名称，必须与资产 DNA 表中的名称完全一致，无则填空字符串
 - characters (string[]): 出场角色名称数组，必须与资产 DNA 表中的名称完全一致
-- props (string[]): 道具名称数组，与资产 DNA 表一致，无则为空数组
-- actionCN (string): 中文动作描述，20–40 字，描述画面中正在发生的事
-- dialogue (string): 该镜头的台词，无则为空字符串
-- seedancePrompt (string): Seedance 2.0 格式的英文视频提示词（见下方规范）
+- props (string[]): 重要道具数组，无则为空数组
+- actionCN (string): 60–100 字中文描述，写清楚这 15 秒内的完整叙事弧：【开场状态】→【关键转折/动作】→【结尾情绪/悬念】
+- dialogue (string): 这段视频中最关键的一句台词，无则为空字符串
+- seedancePrompt (string): Seedance 2.0 格式 15 秒视频提示词（见下方规范）
 
-## Seedance 2.0 提示词规范（seedancePrompt 字段）
-格式：[N] seconds. [景别英文], [运镜英文]. [人物动作]. [场景细节]. [情绪氛围]. [画风 tags].
+## Seedance 2.0 视频提示词规范（seedancePrompt 字段）
+每段提示词描述一个完整 15 秒的叙事片段，包含开场、发展、结尾三个节奏点：
+
+格式参考：
+15 seconds. [开场镜头描述]. [开场人物状态]. [关键动作/转折，可写镜头切换]. [结尾画面/情绪]. [场景环境]. [整体氛围]. [画风 tags].
 
 关键规则：
-1. 人物直接使用 @角色名 引用，例如：@林晓月 nervously checks her phone
-2. 场景直接使用 @场景名 引用，例如：@咖啡馆 with warm amber lighting
-3. @引用的名称必须与资产 DNA 表中的名称完全一致（系统发送前会自动替换为完整描述）
-4. 必须描述动态过程——视频是有时间轴的，写清楚人物/镜头如何运动
-5. 画风 tags 与项目风格一致
-6. 纯英文输出 seedancePrompt
+1. 人物用 @角色名 引用（如 @林晓月），系统发送前自动替换为完整 DNA 描述
+2. 场景用 @场景名 引用（如 @咖啡馆），同上
+3. 描述完整的 15 秒时间轴：开场画面 → 中段发展 → 结尾情绪/悬念
+4. 可以写内部镜头切换（如：cuts to close-up / camera slowly pushes in / reverse shot reveals）
+5. 注重情绪递进——15 秒内要有情感变化或信息揭示
+6. 注重视觉美感——景别搭配、光线描述、构图感
+7. 英文输出，生动具体，100–160 词
 
 示例：
-{"shotNumber":1,"duration":4,"shotType":"medium","cameraMove":"static","scene":"咖啡馆","characters":["林晓月"],"props":[],"actionCN":"林晓月坐在窗边紧张地刷手机，眉头轻蹙，眼神不安","dialogue":"","seedancePrompt":"4 seconds. Medium shot, static camera. @林晓月 nervously scrolls through messages, brow furrowed, glancing up at the door. @咖啡馆, warm amber light, wooden tables, quiet afternoon. Tense undercurrent, quiet dread building. 2D illustration, Korean webtoon style, flat color, clean bold linework."}
+{"shotNumber":1,"duration":15,"scene":"咖啡馆","characters":["林晓月","李明"],"props":[],"actionCN":"开场：林晓月独坐窗边，神色紧张地看手机，忽然收到神秘短信后怔住。转折：门口出现的身影让她抬起头——是多年未见的李明。结尾：两人目光相交，她的手微微颤抖，气氛凝固。","dialogue":"你还欠我一个解释。","seedancePrompt":"15 seconds. Opens with medium shot, warm @咖啡馆 interior bathed in golden afternoon light, wooden tables, soft chatter in background. @林晓月 sits alone, tense, scrolling her phone — her expression darkens as she reads a message. At midpoint, a shadow falls across her table; she slowly looks up and the camera cuts to a reverse wide shot: @李明 stands in the doorway, jacket damp from rain. Final 5 seconds push into a slow close-up of her eyes widening, hand trembling around her cup. Charged silence, lighting shifts from warm gold to cool blue. 2D illustration, Korean webtoon style, flat color, clean bold linework, cinematic composition."}
 
-## 镜头选取原则
-1. 选剧情转折点、情绪高峰、关键冲突时刻
-2. 首尾镜头要有视觉冲击力
-3. 镜头间要有景别对比（避免连续同一景别）
-4. 场景和角色名称必须来自资产 DNA 表，不得自行发明`;
+## 场景选取原则
+1. 每个场景是叙事关键节点——高潮、转折、情感爆发、信息揭示
+2. 场景之间要有情绪递进关系：铺垫 → 冲突 → 高潮 → 余震
+3. 不同场景应有视觉多样性：不同地点、不同人物组合、不同时间/光线
+4. 优先选择台词张力强、人物关系变化大的时刻
+5. 场景和角色名称必须来自资产 DNA 表，不得自行发明`;
 
 const CHARACTER_BIOS_PROMPT = `你是一位短剧策划与人物小传作者。请根据提供的「故事圣经」，列出全部主要角色以及对主线、核心矛盾有推动作用的关键配角，不得人为限制人数。
 

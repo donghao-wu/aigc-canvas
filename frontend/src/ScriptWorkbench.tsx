@@ -51,13 +51,11 @@ interface EpisodeDraft {
 // ── 分镜相关类型 ──────────────────────────────────────────────
 interface StoryboardShot {
   shotNumber: number
-  duration: number
-  shotType: 'close' | 'medium' | 'full' | 'wide'
-  cameraMove: 'static' | 'push_in' | 'pull_out' | 'pan_left' | 'pan_right' | 'track' | 'crane_up'
+  duration: number          // always 15 in v2
   scene: string
   characters: string[]
   props: string[]
-  actionCN: string
+  actionCN: string          // 60-100 char full narrative arc
   dialogue: string
   seedancePrompt: string    // contains @AssetName placeholders
   sentToCanvas?: boolean
@@ -521,12 +519,11 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
   const handleSendShotToCanvas = useCallback(async (shot: StoryboardShot, episodeIndex: number, shotIndex: number, offsetX = 0) => {
     const assets = await fetchAssets()
     const resolvedPrompt = resolveAtMentions(shot.seedancePrompt, assets)
-    const shotLabel = { close:'特写', medium:'中景', full:'全景', wide:'远景' }[shot.shotType] || shot.shotType
     const node = {
       id: `video_ep${episodeIndex}_s${shotIndex}_${Date.now()}`,
       type: 'videoGen',
       position: { x: 200 + offsetX, y: 400 },
-      data: { name: `第${episodeIndex+1}集·镜头${shot.shotNumber} ${shotLabel}·${shot.duration}s`, initialPrompt: resolvedPrompt },
+      data: { name: `第${episodeIndex+1}集·场景${shot.shotNumber}·15s`, initialPrompt: resolvedPrompt },
     }
     window.dispatchEvent(new CustomEvent('add-node-to-canvas', { detail: { node } }))
     // Mark sent
@@ -543,12 +540,11 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
     const assets = await fetchAssets()
     shots.forEach((shot, i) => {
       const resolvedPrompt = resolveAtMentions(shot.seedancePrompt, assets)
-      const shotLabel = { close:'特写', medium:'中景', full:'全景', wide:'远景' }[shot.shotType] || shot.shotType
       const node = {
         id: `video_ep${episodeIndex}_s${i}_${Date.now() + i}`,
         type: 'videoGen',
         position: { x: 200 + i * 420, y: 400 },
-        data: { name: `第${episodeIndex+1}集·镜头${shot.shotNumber} ${shotLabel}·${shot.duration}s`, initialPrompt: resolvedPrompt },
+        data: { name: `第${episodeIndex+1}集·场景${shot.shotNumber}·15s`, initialPrompt: resolvedPrompt },
       }
       window.dispatchEvent(new CustomEvent('add-node-to-canvas', { detail: { node } }))
     })
@@ -1822,8 +1818,6 @@ function renderSeedancePrompt(prompt: string, T: any) {
   )
 }
 
-const SHOT_TYPE_LABELS: Record<string, string> = { close: '特写', medium: '中景', full: '全景', wide: '远景' }
-const CAM_LABELS: Record<string, string> = { static: '静止', push_in: '推进', pull_out: '拉远', pan_left: '左摇', pan_right: '右摇', track: '跟拍', crane_up: '升镜' }
 
 function StoryboardPanel({ episodeIndex, episode, busy, streamBuf, sbError, onGenerate, onSendShot, onSendAll, T, theme }: {
   episodeIndex: number
@@ -1839,7 +1833,6 @@ function StoryboardPanel({ episodeIndex, episode, busy, streamBuf, sbError, onGe
 }) {
   const shots = episode.storyboard || []
   const canGenerate = episode.status === 'done' && !busy
-  const totalDuration = shots.reduce((s, sh) => s + sh.duration, 0)
 
   if (!episode.content && !busy) {
     return (
@@ -1858,7 +1851,7 @@ function StoryboardPanel({ episodeIndex, episode, busy, streamBuf, sbError, onGe
           <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>
             第 {episodeIndex + 1} 集分镜
             {shots.length > 0 && <span style={{ fontSize: 12, fontWeight: 400, color: T.textMuted, marginLeft: 8 }}>
-              {shots.length} 个镜头 · 约 {totalDuration}s · Seedance 2.0 格式
+              {shots.length} 段场景 · 每段 15s · Seedance 2.0 格式
             </span>}
           </div>
           <div style={{ fontSize: 11, color: T.textMuted, marginTop: 2 }}>
@@ -1884,7 +1877,7 @@ function StoryboardPanel({ episodeIndex, episode, busy, streamBuf, sbError, onGe
       {/* Generating spinner */}
       {busy && (
         <div style={{ padding: '24px 0', textAlign: 'center' }}>
-          <div style={{ fontSize: 13, color: T.accent, marginBottom: 8 }}>AI 正在分析剧本，生成 15 秒分镜方案...</div>
+          <div style={{ fontSize: 13, color: T.accent, marginBottom: 8 }}>AI 正在分析剧本，生成视频分镜场景...</div>
           <div style={{ fontSize: 11, color: T.textMuted, fontFamily: 'monospace', maxHeight: 60, overflow: 'hidden', textAlign: 'left', background: T.nodeSubtle, borderRadius: 6, padding: '6px 10px' }}>
             {streamBuf.slice(-200)}
           </div>
@@ -1903,10 +1896,8 @@ function StoryboardPanel({ episodeIndex, episode, busy, streamBuf, sbError, onGe
               }}>
                 {/* Shot header */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: `1px solid ${T.border}`, background: theme === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)' }}>
-                  <span style={{ fontWeight: 700, color: T.accent, fontSize: 13 }}>镜头 {shot.shotNumber}</span>
-                  <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 4, background: 'rgba(124,58,237,0.12)', color: 'rgba(124,58,237,0.9)', fontWeight: 500 }}>{shot.duration}s</span>
-                  <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 4, background: T.nodeSubtle, color: T.textSub }}>{SHOT_TYPE_LABELS[shot.shotType] || shot.shotType}</span>
-                  <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 4, background: T.nodeSubtle, color: T.textSub }}>{CAM_LABELS[shot.cameraMove] || shot.cameraMove}</span>
+                  <span style={{ fontWeight: 700, color: T.accent, fontSize: 13 }}>场景 {shot.shotNumber}</span>
+                  <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 4, background: 'rgba(124,58,237,0.12)', color: 'rgba(124,58,237,0.9)', fontWeight: 500 }}>15s</span>
                   <div style={{ flex: 1 }} />
                   {shot.sentToCanvas && <span style={{ fontSize: 10, color: 'rgba(80,200,100,0.8)' }}>✓ 已发送</span>}
                   <button
@@ -1959,7 +1950,7 @@ function StoryboardPanel({ episodeIndex, episode, busy, streamBuf, sbError, onGe
               style={{ padding: '10px 20px', borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: 'pointer', background: T.btnBg, color: T.btnText, border: 'none', display: 'flex', alignItems: 'center', gap: 6 }}
             >
               🎬 全部发送到画布
-              <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.8 }}>（{shots.length} 个 VideoGenNode）</span>
+              <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.8 }}>（{shots.length} 段 × 15s）</span>
             </button>
           </div>
         </>
