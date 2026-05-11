@@ -375,6 +375,12 @@ async function buildSeedanceContent(prompt, referenceImages = []) {
   return content;
 }
 
+function normalizeVideoDuration(value, fallback = 5) {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(1, Math.min(30, parsed));
+}
+
 // ── 资产 DNA 对照表构建（用于分镜提示词上下文）────────────────
 function buildAssetSheet(assets) {
   if (!assets || assets.length === 0) return '（本项目暂无资产登记）';
@@ -401,7 +407,7 @@ function buildAssetSheet(assets) {
 
 app.post('/api/generate-video', authMiddleware, async (req, res) => {
   try {
-    const { prompt, model = 'wan_landscape', referenceImages = [] } = req.body;
+    const { prompt, model = 'wan_landscape', referenceImages = [], duration } = req.body;
     if (!prompt?.trim()) return res.status(400).json({ error: 'prompt 不能为空' });
 
     // ── Seedance 2.0 ──────────────────────────────────────────
@@ -411,14 +417,15 @@ app.post('/api/generate-video', authMiddleware, async (req, res) => {
       }
       const cfg = SEEDANCE_CONFIG[model];
       const content = await buildSeedanceContent(prompt.trim(), referenceImages);
-      console.log(`[Seedance] 提交任务, ratio=${cfg.ratio}, refs=${referenceImages.length}`);
+      const videoDuration = normalizeVideoDuration(duration, 5);
+      console.log(`[Seedance] 提交任务, ratio=${cfg.ratio}, duration=${videoDuration}s, refs=${referenceImages.length}`);
       const response = await axios.post(
         `${SEEDANCE_API_BASE}/contents/generations/tasks`,
         {
           model: cfg.model,
           content,
           ratio: cfg.ratio,
-          duration: 5,
+          duration: videoDuration,
           watermark: false,
           generate_audio: false,
         },

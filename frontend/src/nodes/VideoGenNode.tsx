@@ -95,6 +95,8 @@ export default function VideoGenNode({ id, data }: NodeProps) {
   const nodeName = d?.name as string || '生视频'
   const handleRename = (v: string) =>
     setNodes(nds => nds.map(n => n.id === id ? { ...n, data: { ...n.data, name: v } } : n))
+  const rawDuration = Number(d?.duration ?? d?.initialDuration)
+  const videoDuration = Number.isFinite(rawDuration) && rawDuration > 0 ? Math.round(rawDuration) : undefined
 
   const [model,     setModel]     = useState('wan_landscape')
   const [prompt,    setPrompt]    = useState(d?.initialPrompt as string || '')
@@ -173,6 +175,7 @@ export default function VideoGenNode({ id, data }: NodeProps) {
       const { data } = await axios.post('/api/generate-video', {
         prompt: trimmed,
         model,
+        ...(videoDuration ? { duration: videoDuration } : {}),
         // Seedance 2.0 参考图：后端负责将本地路径转为 base64 并构建 content 数组
         referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
       })
@@ -190,7 +193,7 @@ export default function VideoGenNode({ id, data }: NodeProps) {
       setError(String(msg))
       setStatus('failed')
     }
-  }, [prompt, model, status, referenceImages, stopPolling, startPolling])  // taskType used in startPolling via closure
+  }, [prompt, model, status, referenceImages, videoDuration, stopPolling, startPolling])  // taskType used in startPolling via closure
 
   const isGenerating = status === 'submitting' || status === 'processing'
   const canGenerate  = !!prompt.trim() && !isGenerating

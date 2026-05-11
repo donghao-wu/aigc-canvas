@@ -34,16 +34,22 @@
 
 ## Changelog
 
+### 2026-05-11 — 分镜发送状态 + Seedance 时长修正
+
+- 分镜发送到画布后会同步更新 `episodes[].storyboard` 与 `storyboardByEpisode`，并调用 `/api/projects/:id/storyboard` 持久化，刷新后保留“已发送”状态
+- VideoGenNode 会接收分镜 `duration` 并提交给 `/api/generate-video`，后端 Seedance 分支不再固定传 `duration: 5`
+- 分镜 v2 的 15 秒叙事单元发送到 Seedance 时会按 `duration: 15` 进入请求体（Seedance UI 仍保持 disabled，等待正式 API 接入）
+
 ### 2026-05-11 — 分镜生成 + Seedance 2.0 + @资产引用
 
 **剧本 → 分镜 → 画布 完整链路**
 - 每集剧本下新增"📽 分镜"子标签页（剧本/分镜双 tab 切换）
 - `STORYBOARD_PROMPT`：AI 从剧本选取 3–5 个戏剧高峰，生成约 15 秒分镜方案
 - 分镜提示词使用 `@资产名` 引用（如 `@林晓月 nervously checks her phone`）
-- 发送到画布时系统自动替换 `@资产名` → 资产 DNA 描述（调用 `/api/assets` 解析）
+- 发送到画布时系统自动解析 `@资产名`：有资产图则转为 Seedance `referenceImages` + `@imageN`，无图则回退为资产 DNA/描述文本
 - 每集独立生成，互不干扰；生成结果持久化到 `project.data.storyboardByEpisode`
 - "→ 画布"（单个镜头）和"全部发送到画布"（批量横向排列）
-- 画布 VideoGenNode 新增 `initialPrompt` 支持，接收分镜发来的预填充提示词
+- 画布 VideoGenNode 新增 `initialPrompt` / `duration` 支持，接收分镜发来的预填充提示词和时长
 
 **Seedance 2.0 占位**
 - VideoGenNode 新增 Seedance 2.0 横屏/竖屏模型选项（disabled 状态，接入中）

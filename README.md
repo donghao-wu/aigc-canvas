@@ -233,6 +233,7 @@ PUT    /api/projects/:id/script  # 保存剧本数据
 GET    /api/projects/:id/status  # 项目协作状态
 GET    /api/projects/:id/stats   # 项目统计
 GET    /api/projects/:id/events  # 项目事件日志
+POST   /api/projects/:id/storyboard # 保存单集分镜
 GET    /api/dashboard            # 首页 Dashboard 汇总
 ```
 
@@ -240,7 +241,7 @@ GET    /api/dashboard            # 首页 Dashboard 汇总
 
 ```
 POST /api/generate-image      # 文生图（Wanx）
-POST /api/generate-video      # 文生视频（WAN）
+POST /api/generate-video      # 文生视频（WAN；Seedance 占位支持 duration/referenceImages）
 GET  /api/video-status        # 视频任务状态轮询
 GET  /api/video-proxy/:taskId # 视频流代理
 POST /api/analyze-image       # 图片影像分析（Qwen-VL）
@@ -529,7 +530,11 @@ chore: 依赖/配置更新
 
 ## Changelog
 
-### v0.5.1（当前）— 2026-05-04
+### v0.5.2（当前）— 2026-05-11
+- **分镜发送状态持久化**：单个或批量发送分镜到画布后，同步更新 `storyboardByEpisode` 并保存到后端，刷新后仍保留“已发送”状态
+- **Seedance 时长参数**：`/api/generate-video` 不再写死 Seedance `duration: 5`；视频节点会把分镜 `duration` 传给后端，分镜 v2 的 15s 场景可按 15s 提交
+
+### v0.5.1 — 2026-05-04
 - **UI 第一阶段改造**：项目首页从居中项目列表升级为生产中控台，增加左侧导航、顶部操作区、统计卡、项目队列、生产流和全局资产速览
 - **首页模块补齐**：左侧“生产总览 / 项目队列 / 剧本流水线 / 视觉资产 / 视频交付”均可切换到独立内容区，视频交付明确展示当前已接入与待接入能力
 - **项目内 UI 第二阶段**：新增 `StudioHeader`，统一剧本、生图画布、资产库的项目名、模块切换、保存/生成状态与主题切换

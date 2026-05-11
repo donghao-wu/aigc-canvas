@@ -556,6 +556,28 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
     return { prompt: resolved, referenceImages }
   }
 
+  const persistStoryboard = useCallback((episodeIndex: number, shots: StoryboardShot[]) => {
+    axios.post(`/api/projects/${projectId}/storyboard`,
+      { episodeIndex, shots }, { headers: authHeaders() }).catch(() => {})
+  }, [projectId])
+
+  const updateStoryboardForEpisode = useCallback((
+    episodeIndex: number,
+    updater: (shots: StoryboardShot[]) => StoryboardShot[],
+  ) => {
+    const current = dataRef.current.episodes[episodeIndex]?.storyboard
+      || dataRef.current.storyboardByEpisode?.[episodeIndex]
+      || []
+    const nextShots = updater(current)
+    setData(prev => {
+      const eps = [...prev.episodes]
+      if (eps[episodeIndex]) eps[episodeIndex] = { ...eps[episodeIndex], storyboard: nextShots }
+      const storyboardByEpisode = { ...prev.storyboardByEpisode, [episodeIndex]: nextShots }
+      return { ...prev, episodes: eps, storyboardByEpisode }
+    })
+    persistStoryboard(episodeIndex, nextShots)
+  }, [persistStoryboard])
+
   const handleSendShotToCanvas = useCallback(async (shot: StoryboardShot, episodeIndex: number, shotIndex: number, offsetX = 0) => {
     const assets = await fetchAssets()
     const { prompt: resolvedPrompt, referenceImages } = buildReferenceContext(shot.seedancePrompt, assets)
@@ -563,18 +585,21 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
       id: `video_ep${episodeIndex}_s${shotIndex}_${Date.now()}`,
       type: 'videoGen',
       position: { x: 200 + offsetX, y: 400 },
-      data: { name: `第${episodeIndex+1}集·场景${shot.shotNumber}·15s`, initialPrompt: resolvedPrompt, referenceImages },
+      data: {
+        name: `第${episodeIndex+1}集·场景${shot.shotNumber}·${shot.duration || 15}s`,
+        initialPrompt: resolvedPrompt,
+        duration: shot.duration || 15,
+        referenceImages,
+      },
     }
     window.dispatchEvent(new CustomEvent('add-node-to-canvas', { detail: { node } }))
-    // Mark sent
-    setData(prev => {
-      const eps = [...prev.episodes]
-      const sb = [...(eps[episodeIndex].storyboard || [])]
-      sb[shotIndex] = { ...sb[shotIndex], sentToCanvas: true }
-      eps[episodeIndex] = { ...eps[episodeIndex], storyboard: sb }
-      return { ...prev, episodes: eps }
+    updateStoryboardForEpisode(episodeIndex, shots => {
+      const sb = shots.length ? [...shots] : [shot]
+      const targetIndex = sb[shotIndex] ? shotIndex : sb.findIndex(s => s.shotNumber === shot.shotNumber)
+      if (targetIndex >= 0) sb[targetIndex] = { ...sb[targetIndex], sentToCanvas: true }
+      return sb
     })
-  }, [fetchAssets])
+  }, [fetchAssets, updateStoryboardForEpisode])
 
   const handleSendAllToCanvas = useCallback(async (shots: StoryboardShot[], episodeIndex: number) => {
     const assets = await fetchAssets()
@@ -584,18 +609,20 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
         id: `video_ep${episodeIndex}_s${i}_${Date.now() + i}`,
         type: 'videoGen',
         position: { x: 200 + i * 420, y: 400 },
-        data: { name: `第${episodeIndex+1}集·场景${shot.shotNumber}·15s`, initialPrompt: resolvedPrompt, referenceImages },
+        data: {
+          name: `第${episodeIndex+1}集·场景${shot.shotNumber}·${shot.duration || 15}s`,
+          initialPrompt: resolvedPrompt,
+          duration: shot.duration || 15,
+          referenceImages,
+        },
       }
       window.dispatchEvent(new CustomEvent('add-node-to-canvas', { detail: { node } }))
     })
-    setData(prev => {
-      const eps = [...prev.episodes]
-      const sb = (eps[episodeIndex].storyboard || []).map(s => ({ ...s, sentToCanvas: true }))
-      eps[episodeIndex] = { ...eps[episodeIndex], storyboard: sb }
-      return { ...prev, episodes: eps }
-    })
+    updateStoryboardForEpisode(episodeIndex, current =>
+      (current.length ? current : shots).map(s => ({ ...s, sentToCanvas: true }))
+    )
     onSwitchToCanvas()
-  }, [fetchAssets, onSwitchToCanvas])
+  }, [fetchAssets, updateStoryboardForEpisode, onSwitchToCanvas])
 
   const handlePause = useCallback(() => {
     pauseRef.current = true
