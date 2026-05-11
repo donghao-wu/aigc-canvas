@@ -4,11 +4,13 @@ import EditableTitle from './EditableTitle'
 import { useTheme } from '../ThemeContext'
 import axios from 'axios'
 
-// ── 模型配置（只包含后端实际支持的 WAN 模型）────────────────
-const WAN_MODELS = [
-  { id: 'wan_landscape', label: 'WAN 2.1 横屏', desc: '1280×720' },
-  { id: 'wan_portrait',  label: 'WAN 2.1 竖屏', desc: '720×1280' },
-  { id: 'wan_square',    label: 'WAN 2.1 方形', desc: '960×960'  },
+// ── 模型配置 ─────────────────────────────────────────────────
+const ALL_MODELS = [
+  { id: 'wan_landscape',      label: 'WAN 2.1 横屏',        desc: '1280×720',          disabled: false },
+  { id: 'wan_portrait',       label: 'WAN 2.1 竖屏',        desc: '720×1280',          disabled: false },
+  { id: 'wan_square',         label: 'WAN 2.1 方形',        desc: '960×960',           disabled: false },
+  { id: 'seedance_landscape', label: 'Seedance 2.0 横屏',   desc: '1280×720 · 接入中', disabled: true  },
+  { id: 'seedance_portrait',  label: 'Seedance 2.0 竖屏',   desc: '720×1280 · 接入中', disabled: true  },
 ]
 
 // 主题色（蓝紫）
@@ -43,7 +45,7 @@ export default function VideoGenNode({ id, data }: NodeProps) {
   const handleRename = (v: string) =>
     setNodes(nds => nds.map(n => n.id === id ? { ...n, data: { ...n.data, name: v } } : n))
   const [model,     setModel]     = useState('wan_landscape')
-  const [prompt,    setPrompt]    = useState('')
+  const [prompt,    setPrompt]    = useState((data as Record<string, unknown>)?.initialPrompt as string || '')
   const [status,    setStatus]    = useState<VideoStatus>('idle')
   const [progress,  setProgress]  = useState<number | null>(null)
   const [videoUrl,  setVideoUrl]  = useState<string | null>(null)
@@ -183,8 +185,9 @@ export default function VideoGenNode({ id, data }: NodeProps) {
             color: T.text,
           }}
         >
-          {WAN_MODELS.map(m => (
-            <option key={m.id} value={m.id} style={{ background: T.nodeBg, color: T.text }}>
+          {ALL_MODELS.map(m => (
+            <option key={m.id} value={m.id} disabled={m.disabled}
+              style={{ background: T.nodeBg, color: m.disabled ? T.textMuted : T.text }}>
               {m.label}  ·  {m.desc}
             </option>
           ))}

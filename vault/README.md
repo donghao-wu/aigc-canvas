@@ -34,6 +34,14 @@
 
 ## Changelog
 
+### 2026-05-11 — Token Tracking 根本原因修复（QA 发现）
+
+**Token tracking 第二层修复**
+- QA 验证时发现 `agentCallCount` 和 `tokenUsed` 仍全为 0
+- 根本原因：DashScope OpenAI 兼容接口需要在请求体中显式传 `stream_options: { include_usage: true }` 才会在 SSE 流末尾返回 token 用量，否则 `usage` 字段永远不出现
+- 修复：在 `/api/script-agent` 的 DashScope 请求中加入该字段
+- 已验证：`summarize_episode` 调用后 `tokenUsed: 158`、`agentCallCount: 1`，写入正确
+
 ### 2026-05-06 — Token Tracking 修复 + 成员管理 UI + 动态下一步面板
 
 **Token tracking（自上线起一直失效）**

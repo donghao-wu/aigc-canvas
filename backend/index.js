@@ -329,11 +329,46 @@ const WAN_CONFIG = {
   'wan_square':    { size: '960*960',   model: 'wan2.1-t2v-turbo' },
 };
 
+// Seedance 2.0 config — API key pending, placeholder only
+const SEEDANCE_CONFIG = {
+  'seedance_landscape': { size: '1280*720',  model: 'seedance2.0-lite-t2v' },
+  'seedance_portrait':  { size: '720*1280',  model: 'seedance2.0-lite-t2v' },
+};
+
+// ── 资产 DNA 对照表构建（用于分镜提示词上下文）────────────────
+function buildAssetSheet(assets) {
+  if (!assets || assets.length === 0) return '（本项目暂无资产登记）';
+  const typeLabels = { CHARACTER: '角色', SCENE: '场景', PROP: '道具' };
+  const grouped = {};
+  for (const a of assets) {
+    if (!grouped[a.type]) grouped[a.type] = [];
+    grouped[a.type].push(a);
+  }
+  const lines = [];
+  for (const [type, list] of Object.entries(grouped)) {
+    lines.push(`### ${typeLabels[type] || type}`);
+    for (const a of list) {
+      const desc = (a.dna || a.description || '').trim();
+      const fieldsStr = Object.entries(a.fields || {})
+        .filter(([, v]) => v)
+        .map(([k, v]) => `${k}：${v}`)
+        .join('，');
+      lines.push(`- ${a.name}: ${desc}${fieldsStr ? ' | ' + fieldsStr : ''}`);
+    }
+  }
+  return lines.join('\n');
+}
+
 app.post('/api/generate-video', authMiddleware, async (req, res) => {
   try {
     const { prompt, model = 'wan_landscape' } = req.body;
     if (!prompt?.trim()) return res.status(400).json({ error: 'prompt 不能为空' });
     if (!DASHSCOPE_KEY)  return res.status(500).json({ error: '未配置 DASHSCOPE_API_KEY' });
+
+    // Seedance 2.0 — API key pending, return friendly error
+    if (model in SEEDANCE_CONFIG) {
+      return res.status(503).json({ error: 'Seedance 2.0 接入中，API key 配置后即可使用' });
+    }
 
     const englishPrompt = await ensureEnglish(prompt.trim());
     const cfg = WAN_CONFIG[model] || WAN_CONFIG['wan_landscape'];
@@ -736,6 +771,41 @@ const SUMMARIZE_PROMPT = `请用3句话概括以下剧本集数，要求：
 第3句：结尾状态（这集结束时各主要角色处于什么状态/位置）
 只输出3句话，不要标题，不要序号。`;
 
+const STORYBOARD_PROMPT = `你是专业的短剧分镜师。根据提供的剧本，选取 3–5 个最具戏剧张力的时刻，生成总时长约 15 秒的视频分镜方案。
+
+## 输出格式
+严格输出 JSON 数组（不加任何 markdown 代码块，不加说明文字），每个镜头对象包含以下字段：
+- shotNumber (number): 镜头序号，从 1 开始
+- duration (number): 时长秒数，3–5 之间，所有镜头总计约 15 秒
+- shotType (string): 景别，值为 close/medium/full/wide 之一
+- cameraMove (string): 运镜，值为 static/push_in/pull_out/pan_left/pan_right/track/crane_up 之一
+- scene (string): 场景名称，必须与资产 DNA 表中的名称完全一致，无则填空字符串
+- characters (string[]): 出场角色名称数组，必须与资产 DNA 表中的名称完全一致
+- props (string[]): 道具名称数组，与资产 DNA 表一致，无则为空数组
+- actionCN (string): 中文动作描述，20–40 字，描述画面中正在发生的事
+- dialogue (string): 该镜头的台词，无则为空字符串
+- seedancePrompt (string): Seedance 2.0 格式的英文视频提示词（见下方规范）
+
+## Seedance 2.0 提示词规范（seedancePrompt 字段）
+格式：[N] seconds. [景别英文], [运镜英文]. [人物动作]. [场景细节]. [情绪氛围]. [画风 tags].
+
+关键规则：
+1. 人物直接使用 @角色名 引用，例如：@林晓月 nervously checks her phone
+2. 场景直接使用 @场景名 引用，例如：@咖啡馆 with warm amber lighting
+3. @引用的名称必须与资产 DNA 表中的名称完全一致（系统发送前会自动替换为完整描述）
+4. 必须描述动态过程——视频是有时间轴的，写清楚人物/镜头如何运动
+5. 画风 tags 与项目风格一致
+6. 纯英文输出 seedancePrompt
+
+示例：
+{"shotNumber":1,"duration":4,"shotType":"medium","cameraMove":"static","scene":"咖啡馆","characters":["林晓月"],"props":[],"actionCN":"林晓月坐在窗边紧张地刷手机，眉头轻蹙，眼神不安","dialogue":"","seedancePrompt":"4 seconds. Medium shot, static camera. @林晓月 nervously scrolls through messages, brow furrowed, glancing up at the door. @咖啡馆, warm amber light, wooden tables, quiet afternoon. Tense undercurrent, quiet dread building. 2D illustration, Korean webtoon style, flat color, clean bold linework."}
+
+## 镜头选取原则
+1. 选剧情转折点、情绪高峰、关键冲突时刻
+2. 首尾镜头要有视觉冲击力
+3. 镜头间要有景别对比（避免连续同一景别）
+4. 场景和角色名称必须来自资产 DNA 表，不得自行发明`;
+
 const CHARACTER_BIOS_PROMPT = `你是一位短剧策划与人物小传作者。请根据提供的「故事圣经」，列出全部主要角色以及对主线、核心矛盾有推动作用的关键配角，不得人为限制人数。
 
 【人数与覆盖（必须遵守）】
@@ -921,6 +991,23 @@ ${episodeMapText.slice(0, 1500)}
     systemContent = SUMMARIZE_PROMPT;
     userContent = `第${episodeIndex + 1}集剧本：\n\n${episodeContent.slice(0, 3000)}`;
 
+  } else if (mode === 'storyboard') {
+    const { episodeContent = '', episodeIndex = 0, characterBios = '' } = req.body;
+    // Pull assets from DB to build DNA sheet
+    const assets = projectId ? dbModule.listAssetsWithPrompts(projectId) : [];
+    const assetSheet = buildAssetSheet(assets);
+    systemContent = STORYBOARD_PROMPT;
+    userContent = [
+      '## 资产 DNA 对照表（@引用的名称必须完全来自此处）',
+      assetSheet,
+      '',
+      '## 角色小传（参考风格标签）',
+      (characterBios || '').slice(0, 1500),
+      '',
+      `## 第${episodeIndex + 1}集剧本`,
+      (episodeContent || '').slice(0, 5000),
+    ].join('\n');
+
   } else {
     return res.status(400).json({ error: `未知 mode: ${mode}` });
   }
@@ -997,7 +1084,7 @@ ${episodeMapText.slice(0, 1500)}
 // ── 剧本数据存储（DB-backed）──────────────────────────────────
 // Script fields live inside projects.data alongside canvas nodes/edges.
 const SCRIPT_FIELDS = ['params', 'styleConfig', 'storyBible', 'episodeMapText', 'episodeMap',
-                       'characterBios', 'assetRegistry', 'episodes'];
+                       'characterBios', 'assetRegistry', 'episodes', 'storyboardByEpisode'];
 
 function fieldValue(block, key) {
   const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -1107,7 +1194,11 @@ app.get('/api/projects/:id/script', authMiddleware, (req, res) => {
   const data = project.data || {};
   // Return only script fields (not canvas nodes/edges which belong to the canvas route)
   const script = {};
-  for (const f of SCRIPT_FIELDS) script[f] = data[f] ?? (f === 'episodeMap' || f === 'episodes' ? [] : '');
+  for (const f of SCRIPT_FIELDS) {
+    if (f === 'storyboardByEpisode') { script[f] = data[f] ?? {}; }
+    else if (f === 'episodeMap' || f === 'episodes') { script[f] = data[f] ?? []; }
+    else { script[f] = data[f] ?? ''; }
+  }
   if (script.params === '') script.params = null;
   res.json(script);
 });
@@ -1145,6 +1236,27 @@ app.put('/api/projects/:id/script', authMiddleware, (req, res) => {
   res.json({ ok: true, assetSync });
 });
 
+
+// ── 分镜保存 ──────────────────────────────────────────────────
+// POST /api/projects/:id/storyboard  { episodeIndex, shots: StoryboardShot[] }
+app.post('/api/projects/:id/storyboard', authMiddleware, (req, res) => {
+  if (!validateId(req.params.id)) return res.status(400).json({ error: 'Invalid id' });
+  const { episodeIndex, shots } = req.body;
+  if (episodeIndex == null || !Array.isArray(shots)) {
+    return res.status(400).json({ error: 'episodeIndex and shots[] required' });
+  }
+  if (!requireProjectAccess(req.params.id, req.userId, 'editor')) return res.status(403).json({ error: '无权限' });
+
+  const project = dbModule.findProject(req.params.id);
+  if (!project) return res.status(404).json({ error: '项目不存在' });
+
+  const existing = project.data || {};
+  const storyboardByEpisode = { ...(existing.storyboardByEpisode || {}), [episodeIndex]: shots };
+  dbModule.updateProjectData(req.params.id, { ...existing, storyboardByEpisode }, req.userId);
+  dbModule.trackStageComplete(req.params.id, req.userId, 'storyboard');
+
+  res.json({ ok: true, episodeIndex, shotCount: shots.length });
+});
 
 // ── 健康检查 ──────────────────────────────────────────────────
 app.get('/health', (req, res) => {

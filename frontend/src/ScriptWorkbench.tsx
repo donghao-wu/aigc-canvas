@@ -45,6 +45,22 @@ interface EpisodeDraft {
   content: string
   summary: string
   status: 'pending' | 'generating' | 'done' | 'error'
+  storyboard?: StoryboardShot[]
+}
+
+// ── 分镜相关类型 ──────────────────────────────────────────────
+interface StoryboardShot {
+  shotNumber: number
+  duration: number
+  shotType: 'close' | 'medium' | 'full' | 'wide'
+  cameraMove: 'static' | 'push_in' | 'pull_out' | 'pan_left' | 'pan_right' | 'track' | 'crane_up'
+  scene: string
+  characters: string[]
+  props: string[]
+  actionCN: string
+  dialogue: string
+  seedancePrompt: string    // contains @AssetName placeholders
+  sentToCanvas?: boolean
 }
 
 interface ScriptData {
@@ -56,6 +72,7 @@ interface ScriptData {
   episodeMapText: string
   episodeMap: EpisodeOutline[]
   episodes: EpisodeDraft[]
+  storyboardByEpisode: Record<number, StoryboardShot[]>
 }
 
 type SelectedItem = 'params' | 'bible' | 'bios' | 'assets' | 'map' | number
@@ -78,6 +95,7 @@ const EMPTY_DATA: ScriptData = {
   params: null, styleConfig: DEFAULT_STYLE_CONFIG,
   storyBible: '', characterBios: '', assetRegistry: '',
   episodeMapText: '', episodeMap: [], episodes: [],
+  storyboardByEpisode: {},
 }
 
 // ── 下载工具 ─────────────────────────────────────────────────
@@ -180,6 +198,13 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
   const [paused, setPaused]         = useState(false)
   const [saveMsg, setSaveMsg]       = useState('')
 
+  // ── 分镜专用状态 ──────────────────────────────────────────
+  const [sbBusy,   setSbBusy]   = useState<number | null>(null)   // episode index being storyboarded
+  const [sbBuf,    setSbBuf]    = useState('')                     // accumulating JSON text
+  const [sbError,  setSbError]  = useState<string | null>(null)
+  const [epSubTab, setEpSubTab] = useState<'script' | 'storyboard'>('script')
+  const assetsCacheRef          = useRef<Array<{name:string;dna:string;description:string;type:string}> | null>(null)
+
   const abortRef    = useRef<AbortController | null>(null)
   const pauseRef    = useRef(false)
   const dataRef     = useRef<ScriptData>(EMPTY_DATA)  // always in sync with data
@@ -190,12 +215,18 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
     axios.get(`/api/projects/${projectId}/script`, { headers: authHeaders() })
       .then(({ data: saved }) => {
         if (saved.storyBible || saved.episodes?.length) {
-          setData(saved)
+          // Merge storyboardByEpisode into episodes for convenience
+          const sbByEp: Record<number, StoryboardShot[]> = saved.storyboardByEpisode || {}
+          const episodes: EpisodeDraft[] = (saved.episodes || []).map((ep: EpisodeDraft, i: number) => ({
+            ...ep,
+            storyboard: sbByEp[i] || ep.storyboard,
+          }))
+          setData({ ...saved, episodes, storyboardByEpisode: sbByEp })
           if (saved.params) setParams(saved.params)
           if (saved.styleConfig) setStyleConfig(saved.styleConfig)
           // 自动导航到合适位置
-          if (saved.episodes?.length > 0) {
-            const lastDone = saved.episodes.filter((e: EpisodeDraft) => e.status === 'done').length
+          if (episodes.length > 0) {
+            const lastDone = episodes.filter((e: EpisodeDraft) => e.status === 'done').length
             setSelected(lastDone > 0 ? lastDone - 1 : 'bible')
           } else if (saved.characterBios) {
             setSelected('bios')
@@ -424,6 +455,111 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
     generateEpisodesFrom(startFrom === -1 ? 0 : startFrom)
   }, [data.episodes, generateEpisodesFrom])
 
+  // ── 分镜生成 ──────────────────────────────────────────────
+  const handleGenerateStoryboard = useCallback((episodeIndex: number) => {
+    const ep = dataRef.current.episodes[episodeIndex]
+    if (!ep || ep.status !== 'done') return
+    setSbBusy(episodeIndex)
+    setSbBuf('')
+    setSbError(null)
+    let accum = ''
+    streamSSE(
+      { mode: 'storyboard', projectId, episodeIndex,
+        episodeContent: ep.content, characterBios: dataRef.current.characterBios },
+      chunk => { accum += chunk; setSbBuf(accum) },
+      full => {
+        try {
+          // Strip possible markdown code fences from model output
+          const cleaned = full.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim()
+          const shots: StoryboardShot[] = JSON.parse(cleaned)
+          // Assign shotIds
+          const withIds = shots.map((s, i) => ({ ...s, shotId: `s${episodeIndex}_${i}`, sentToCanvas: false }))
+          // Persist to state
+          setData(prev => {
+            const eps = [...prev.episodes]
+            eps[episodeIndex] = { ...eps[episodeIndex], storyboard: withIds }
+            const storyboardByEpisode = { ...prev.storyboardByEpisode, [episodeIndex]: withIds }
+            return { ...prev, episodes: eps, storyboardByEpisode }
+          })
+          // Save to backend
+          axios.post(`/api/projects/${projectId}/storyboard`,
+            { episodeIndex, shots: withIds }, { headers: authHeaders() }).catch(() => {})
+        } catch {
+          setSbError('分镜 JSON 解析失败，请重试')
+        }
+        setSbBusy(null)
+        setSbBuf('')
+      },
+      msg => { setSbError(msg); setSbBusy(null); setSbBuf('') },
+    )
+  }, [projectId])
+
+  // ── @资产解析 & 发送到画布 ────────────────────────────────
+  const fetchAssets = useCallback(async () => {
+    if (assetsCacheRef.current) return assetsCacheRef.current
+    try {
+      const { data: list } = await axios.get(`/api/assets?projectId=${projectId}`, { headers: authHeaders() })
+      assetsCacheRef.current = list
+      return list as Array<{name:string;dna:string;description:string;type:string}>
+    } catch { return [] }
+  }, [projectId])
+
+  const resolveAtMentions = (prompt: string, assets: Array<{name:string;dna:string;description:string;type:string}>) => {
+    let resolved = prompt
+    const sorted = [...assets].sort((a, b) => b.name.length - a.name.length)
+    for (const asset of sorted) {
+      const tag = `@${asset.name}`
+      if (resolved.includes(tag)) {
+        const desc = (asset.dna || asset.description || asset.name).trim()
+        resolved = resolved.split(tag).join(desc)
+      }
+    }
+    return resolved
+  }
+
+  const handleSendShotToCanvas = useCallback(async (shot: StoryboardShot, episodeIndex: number, shotIndex: number, offsetX = 0) => {
+    const assets = await fetchAssets()
+    const resolvedPrompt = resolveAtMentions(shot.seedancePrompt, assets)
+    const shotLabel = { close:'特写', medium:'中景', full:'全景', wide:'远景' }[shot.shotType] || shot.shotType
+    const node = {
+      id: `video_ep${episodeIndex}_s${shotIndex}_${Date.now()}`,
+      type: 'videoGen',
+      position: { x: 200 + offsetX, y: 400 },
+      data: { name: `第${episodeIndex+1}集·镜头${shot.shotNumber} ${shotLabel}·${shot.duration}s`, initialPrompt: resolvedPrompt },
+    }
+    window.dispatchEvent(new CustomEvent('add-node-to-canvas', { detail: { node } }))
+    // Mark sent
+    setData(prev => {
+      const eps = [...prev.episodes]
+      const sb = [...(eps[episodeIndex].storyboard || [])]
+      sb[shotIndex] = { ...sb[shotIndex], sentToCanvas: true }
+      eps[episodeIndex] = { ...eps[episodeIndex], storyboard: sb }
+      return { ...prev, episodes: eps }
+    })
+  }, [fetchAssets])
+
+  const handleSendAllToCanvas = useCallback(async (shots: StoryboardShot[], episodeIndex: number) => {
+    const assets = await fetchAssets()
+    shots.forEach((shot, i) => {
+      const resolvedPrompt = resolveAtMentions(shot.seedancePrompt, assets)
+      const shotLabel = { close:'特写', medium:'中景', full:'全景', wide:'远景' }[shot.shotType] || shot.shotType
+      const node = {
+        id: `video_ep${episodeIndex}_s${i}_${Date.now() + i}`,
+        type: 'videoGen',
+        position: { x: 200 + i * 420, y: 400 },
+        data: { name: `第${episodeIndex+1}集·镜头${shot.shotNumber} ${shotLabel}·${shot.duration}s`, initialPrompt: resolvedPrompt },
+      }
+      window.dispatchEvent(new CustomEvent('add-node-to-canvas', { detail: { node } }))
+    })
+    setData(prev => {
+      const eps = [...prev.episodes]
+      const sb = (eps[episodeIndex].storyboard || []).map(s => ({ ...s, sentToCanvas: true }))
+      eps[episodeIndex] = { ...eps[episodeIndex], storyboard: sb }
+      return { ...prev, episodes: eps }
+    })
+    onSwitchToCanvas()
+  }, [fetchAssets, onSwitchToCanvas])
+
   const handlePause = useCallback(() => {
     pauseRef.current = true
   }, [])
@@ -495,17 +631,57 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
     }
     if (typeof selected === 'number') {
       const ep = data.episodes[selected]
-      const isGeneratingThis = busy && typeof selected === 'number'
-        && data.episodes[selected]?.status === 'generating'
+      const isGeneratingThis = busy && data.episodes[selected]?.status === 'generating'
       const displayText = isGeneratingThis ? streamBuf : (ep?.content || '')
+      const isSbGenerating = sbBusy === selected
       return (
-        <EpisodeContentView
-          index={selected}
-          content={displayText}
-          streaming={isGeneratingThis}
-          T={T}
-          onChange={c => updateEpisodeContent(selected, c)}
-        />
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+          {/* Sub-tab bar: 剧本 / 分镜 */}
+          <div style={{ display: 'flex', borderBottom: `1px solid ${T.border}`, flexShrink: 0, paddingLeft: 4 }}>
+            {(['script', 'storyboard'] as const).map(tab => {
+              const labels: Record<string, string> = { script: '📄 剧本', storyboard: '📽 分镜' }
+              const isActive = epSubTab === tab
+              const hasSb = (ep?.storyboard?.length || 0) > 0
+              return (
+                <button key={tab} onClick={() => setEpSubTab(tab)} style={{
+                  padding: '8px 18px', fontSize: 12, fontWeight: isActive ? 700 : 400,
+                  color: isActive ? T.accent : T.textSub,
+                  background: 'none', border: 'none', borderBottom: isActive ? `2px solid ${T.accent}` : '2px solid transparent',
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
+                }}>
+                  {labels[tab]}
+                  {tab === 'storyboard' && hasSb && (
+                    <span style={{ fontSize: 10, background: 'rgba(80,200,100,0.2)', color: 'rgba(80,200,100,0.9)', borderRadius: 8, padding: '1px 5px' }}>
+                      {ep!.storyboard!.length}镜
+                    </span>
+                  )}
+                  {tab === 'storyboard' && isSbGenerating && (
+                    <span style={{ fontSize: 10, color: T.accent }}>⏳</span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Content area */}
+          <div style={{ flex: 1, overflow: 'auto', padding: 24 }}>
+            {epSubTab === 'script'
+              ? <EpisodeContentView index={selected} content={displayText} streaming={isGeneratingThis} T={T} onChange={c => updateEpisodeContent(selected, c)} />
+              : <StoryboardPanel
+                  episodeIndex={selected}
+                  episode={ep}
+                  busy={isSbGenerating}
+                  streamBuf={sbBuf}
+                  sbError={sbError}
+                  onGenerate={() => handleGenerateStoryboard(selected)}
+                  onSendShot={(shot, shotIndex) => handleSendShotToCanvas(shot, selected, shotIndex, shotIndex * 420)}
+                  onSendAll={shots => handleSendAllToCanvas(shots, selected)}
+                  T={T}
+                  theme={theme}
+                />
+            }
+          </div>
+        </div>
       )
     }
     return null
@@ -580,7 +756,7 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
 
         {/* 主内容区 */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <div style={{ flex: 1, overflow: 'auto', padding: selected === 'params' ? 0 : 24 }}>
+          <div style={{ flex: 1, overflow: 'auto', padding: selected === 'params' ? 0 : typeof selected === 'number' ? 0 : 24 }}>
             {selected === 'params'
               ? (
                 <ParamsForm
@@ -1624,6 +1800,167 @@ function EpisodeContentView({ index, content, streaming, T, onChange }: {
         <ScriptRenderer content={content} streaming={streaming} T={T} />
         {streaming && <span style={{ color: T.accent }}>▌</span>}
       </div>
+    </div>
+  )
+}
+
+// ── 分镜面板 ─────────────────────────────────────────────────
+function renderSeedancePrompt(prompt: string, T: any) {
+  // Highlight @AssetName mentions in gold
+  const parts = prompt.split(/(@[一-龥a-zA-Z0-9·\-_]+)/g)
+  return (
+    <span>
+      {parts.map((part, i) =>
+        part.startsWith('@')
+          ? <span key={i} style={{ color: '#C9982A', fontWeight: 600, background: 'rgba(201,152,42,0.12)', borderRadius: 3, padding: '0 2px' }}>{part}</span>
+          : <span key={i} style={{ color: T.textSub }}>{part}</span>
+      )}
+    </span>
+  )
+}
+
+const SHOT_TYPE_LABELS: Record<string, string> = { close: '特写', medium: '中景', full: '全景', wide: '远景' }
+const CAM_LABELS: Record<string, string> = { static: '静止', push_in: '推进', pull_out: '拉远', pan_left: '左摇', pan_right: '右摇', track: '跟拍', crane_up: '升镜' }
+
+function StoryboardPanel({ episodeIndex, episode, busy, streamBuf, sbError, onGenerate, onSendShot, onSendAll, T, theme }: {
+  episodeIndex: number
+  episode: EpisodeDraft
+  busy: boolean
+  streamBuf: string
+  sbError: string | null
+  onGenerate: () => void
+  onSendShot: (shot: StoryboardShot, shotIndex: number) => void
+  onSendAll: (shots: StoryboardShot[]) => void
+  T: any
+  theme: string
+}) {
+  const shots = episode.storyboard || []
+  const canGenerate = episode.status === 'done' && !busy
+  const totalDuration = shots.reduce((s, sh) => s + sh.duration, 0)
+
+  if (!episode.content && !busy) {
+    return (
+      <div style={{ textAlign: 'center', paddingTop: 60, color: T.textMuted }}>
+        <div style={{ fontSize: 32, marginBottom: 10 }}>📽</div>
+        <div style={{ fontSize: 13 }}>请先生成第 {episodeIndex + 1} 集剧本，再生成分镜</div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ maxWidth: 760, margin: '0 auto' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>
+            第 {episodeIndex + 1} 集分镜
+            {shots.length > 0 && <span style={{ fontSize: 12, fontWeight: 400, color: T.textMuted, marginLeft: 8 }}>
+              {shots.length} 个镜头 · 约 {totalDuration}s · Seedance 2.0 格式
+            </span>}
+          </div>
+          <div style={{ fontSize: 11, color: T.textMuted, marginTop: 2 }}>
+            视频提示词中 <span style={{ color: '#C9982A', fontWeight: 600 }}>@资产名</span> 会在发送画布时自动替换为资产 DNA
+          </div>
+        </div>
+        <button
+          onClick={onGenerate}
+          disabled={!canGenerate}
+          style={{
+            padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: canGenerate ? 'pointer' : 'not-allowed',
+            background: canGenerate ? T.btnBg : T.nodeSubtle, color: canGenerate ? T.btnText : T.textMuted,
+            border: `1px solid ${canGenerate ? 'transparent' : T.border}`, whiteSpace: 'nowrap',
+          }}
+        >
+          {busy ? '⏳ 生成中...' : shots.length > 0 ? '🔄 重新生成' : '🎬 生成分镜'}
+        </button>
+      </div>
+
+      {/* Error */}
+      {sbError && <div style={{ marginBottom: 12, padding: '8px 12px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, fontSize: 12, color: 'rgba(239,68,68,0.9)' }}>{sbError}</div>}
+
+      {/* Generating spinner */}
+      {busy && (
+        <div style={{ padding: '24px 0', textAlign: 'center' }}>
+          <div style={{ fontSize: 13, color: T.accent, marginBottom: 8 }}>AI 正在分析剧本，生成 15 秒分镜方案...</div>
+          <div style={{ fontSize: 11, color: T.textMuted, fontFamily: 'monospace', maxHeight: 60, overflow: 'hidden', textAlign: 'left', background: T.nodeSubtle, borderRadius: 6, padding: '6px 10px' }}>
+            {streamBuf.slice(-200)}
+          </div>
+        </div>
+      )}
+
+      {/* Shot cards */}
+      {shots.length > 0 && !busy && (
+        <>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {shots.map((shot, idx) => (
+              <div key={idx} style={{
+                border: `1px solid ${T.border}`, borderRadius: 12,
+                background: theme === 'dark' ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+                overflow: 'hidden',
+              }}>
+                {/* Shot header */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: `1px solid ${T.border}`, background: theme === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)' }}>
+                  <span style={{ fontWeight: 700, color: T.accent, fontSize: 13 }}>镜头 {shot.shotNumber}</span>
+                  <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 4, background: 'rgba(124,58,237,0.12)', color: 'rgba(124,58,237,0.9)', fontWeight: 500 }}>{shot.duration}s</span>
+                  <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 4, background: T.nodeSubtle, color: T.textSub }}>{SHOT_TYPE_LABELS[shot.shotType] || shot.shotType}</span>
+                  <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 4, background: T.nodeSubtle, color: T.textSub }}>{CAM_LABELS[shot.cameraMove] || shot.cameraMove}</span>
+                  <div style={{ flex: 1 }} />
+                  {shot.sentToCanvas && <span style={{ fontSize: 10, color: 'rgba(80,200,100,0.8)' }}>✓ 已发送</span>}
+                  <button
+                    onClick={() => onSendShot(shot, idx)}
+                    style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, cursor: 'pointer', background: T.btnBg, color: T.btnText, border: 'none', whiteSpace: 'nowrap', fontWeight: 600 }}
+                  >
+                    → 画布
+                  </button>
+                </div>
+
+                {/* Shot body */}
+                <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {/* Chinese description */}
+                  <div style={{ fontSize: 13, color: T.text, lineHeight: 1.6 }}>{shot.actionCN}</div>
+
+                  {/* Dialogue */}
+                  {shot.dialogue && (
+                    <div style={{ fontSize: 12, color: T.textSub, fontStyle: 'italic', paddingLeft: 10, borderLeft: `2px solid ${T.border}` }}>
+                      「{shot.dialogue}」
+                    </div>
+                  )}
+
+                  {/* Asset tags */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                    {shot.characters.map(c => (
+                      <span key={c} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 4, background: 'rgba(201,152,42,0.12)', color: '#C9982A', fontWeight: 500 }}>🎭 @{c}</span>
+                    ))}
+                    {shot.scene && (
+                      <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 4, background: 'rgba(59,130,246,0.12)', color: 'rgba(59,130,246,0.9)', fontWeight: 500 }}>🏠 @{shot.scene}</span>
+                    )}
+                    {shot.props.map(p => (
+                      <span key={p} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 4, background: T.nodeSubtle, color: T.textSub }}>🎨 @{p}</span>
+                    ))}
+                  </div>
+
+                  {/* Seedance prompt */}
+                  <div style={{ fontSize: 11, lineHeight: 1.7, padding: '8px 10px', background: T.nodeSubtle, borderRadius: 7, borderLeft: `3px solid rgba(124,58,237,0.4)` }}>
+                    <div style={{ fontSize: 10, color: T.textMuted, marginBottom: 4, fontWeight: 600 }}>SEEDANCE 2.0 PROMPT</div>
+                    {renderSeedancePrompt(shot.seedancePrompt, T)}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Send all button */}
+          <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
+            <button
+              onClick={() => onSendAll(shots)}
+              style={{ padding: '10px 20px', borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: 'pointer', background: T.btnBg, color: T.btnText, border: 'none', display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              🎬 全部发送到画布
+              <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.8 }}>（{shots.length} 个 VideoGenNode）</span>
+            </button>
+          </div>
+        </>
+      )}
     </div>
   )
 }
