@@ -331,9 +331,49 @@ const WAN_CONFIG = {
 
 // Seedance 2.0 config — API key pending, placeholder only
 const SEEDANCE_CONFIG = {
-  'seedance_landscape': { size: '1280*720',  model: 'seedance2.0-lite-t2v' },
-  'seedance_portrait':  { size: '720*1280',  model: 'seedance2.0-lite-t2v' },
+  'seedance_landscape': { ratio: '16:9', model: 'doubao-seedance-2-0-260128' },
+  'seedance_portrait':  { ratio: '9:16', model: 'doubao-seedance-2-0-260128' },
 };
+
+// Seedance API base（火山引擎 Ark）
+const SEEDANCE_API_BASE = 'https://ark.cn-beijing.volces.com/api/v3';
+const SEEDANCE_KEY = process.env.SEEDANCE_API_KEY || null;
+
+/**
+ * imagePathToDataUrl — 把本地 /generated/... 或 /uploads/... 路径转为 base64 data URL
+ * 外部 https:// 链接直接返回原样（Seedance 支持直接 URL）
+ */
+async function imagePathToDataUrl(imageUrl) {
+  if (!imageUrl) return null;
+  if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) return imageUrl;
+  // 本地路径：/generated/xxx.jpg 或 /uploads/xxx.jpg
+  const rel = imageUrl.replace(/^\/+/, '');
+  const fullPath = path.join(__dirname, rel);
+  try {
+    const buf = fs.readFileSync(fullPath);
+    const ext = path.extname(fullPath).toLowerCase().replace('.', '');
+    const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+    return `data:${mime};base64,${buf.toString('base64')}`;
+  } catch {
+    console.warn(`[Seedance] 无法读取参考图: ${fullPath}`);
+    return null;
+  }
+}
+
+/**
+ * buildSeedanceContent — 构建 Seedance 2.0 API 的 content 数组
+ * referenceImages: [{name, imageUrl, label}]  (label = "image1" / "image2" / ...)
+ * prompt 中已将 @角色名 替换为 @image1 / @image2，与数组顺序对应
+ */
+async function buildSeedanceContent(prompt, referenceImages = []) {
+  const content = [{ type: 'text', text: prompt }];
+  for (const ref of referenceImages) {
+    const url = await imagePathToDataUrl(ref.imageUrl);
+    if (!url) continue;
+    content.push({ type: 'image_url', image_url: { url }, role: 'reference_image' });
+  }
+  return content;
+}
 
 // ── 资产 DNA 对照表构建（用于分镜提示词上下文）────────────────
 function buildAssetSheet(assets) {
@@ -361,15 +401,43 @@ function buildAssetSheet(assets) {
 
 app.post('/api/generate-video', authMiddleware, async (req, res) => {
   try {
-    const { prompt, model = 'wan_landscape' } = req.body;
+    const { prompt, model = 'wan_landscape', referenceImages = [] } = req.body;
     if (!prompt?.trim()) return res.status(400).json({ error: 'prompt 不能为空' });
-    if (!DASHSCOPE_KEY)  return res.status(500).json({ error: '未配置 DASHSCOPE_API_KEY' });
 
-    // Seedance 2.0 — API key pending, return friendly error
+    // ── Seedance 2.0 ──────────────────────────────────────────
     if (model in SEEDANCE_CONFIG) {
-      return res.status(503).json({ error: 'Seedance 2.0 接入中，API key 配置后即可使用' });
+      if (!SEEDANCE_KEY) {
+        return res.status(503).json({ error: 'Seedance 2.0 接入中，请配置 SEEDANCE_API_KEY 后使用' });
+      }
+      const cfg = SEEDANCE_CONFIG[model];
+      const content = await buildSeedanceContent(prompt.trim(), referenceImages);
+      console.log(`[Seedance] 提交任务, ratio=${cfg.ratio}, refs=${referenceImages.length}`);
+      const response = await axios.post(
+        `${SEEDANCE_API_BASE}/contents/generations/tasks`,
+        {
+          model: cfg.model,
+          content,
+          ratio: cfg.ratio,
+          duration: 5,
+          watermark: false,
+          generate_audio: false,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${SEEDANCE_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 30000,
+        }
+      );
+      const taskId = response.data?.id;
+      if (!taskId) throw new Error('未获取到任务ID：' + JSON.stringify(response.data));
+      console.log(`[Seedance] 任务已提交: ${taskId}`);
+      return res.json({ taskId, type: 'seedance' });
     }
 
+    // ── WAN 2.1 ───────────────────────────────────────────────
+    if (!DASHSCOPE_KEY) return res.status(500).json({ error: '未配置 DASHSCOPE_API_KEY' });
     const englishPrompt = await ensureEnglish(prompt.trim());
     const cfg = WAN_CONFIG[model] || WAN_CONFIG['wan_landscape'];
 
@@ -389,13 +457,29 @@ app.post('/api/generate-video', authMiddleware, async (req, res) => {
   }
 });
 
-// GET /api/video-status?taskId=xxx
+// GET /api/video-status?taskId=xxx&type=wan|seedance
 const WAN_STATUS_MAP = { 'PENDING': 'submitted', 'RUNNING': 'in_progress', 'SUCCEEDED': 'completed', 'FAILED': 'failed' };
+const SEEDANCE_STATUS_MAP = { 'queued': 'processing', 'running': 'processing', 'succeeded': 'completed', 'failed': 'failed', 'expired': 'failed', 'cancelled': 'failed' };
 
 app.get('/api/video-status', authMiddleware, async (req, res) => {
   try {
-    const { taskId } = req.query;
+    const { taskId, type = 'wan' } = req.query;
     if (!taskId) return res.status(400).json({ error: 'taskId 不能为空' });
+
+    // ── Seedance 轮询 ──
+    if (type === 'seedance') {
+      if (!SEEDANCE_KEY) return res.status(503).json({ error: 'Seedance API key 未配置' });
+      const response = await axios.get(
+        `${SEEDANCE_API_BASE}/contents/generations/tasks/${taskId}`,
+        { headers: { Authorization: `Bearer ${SEEDANCE_KEY}` }, timeout: 15000 }
+      );
+      const d = response.data || {};
+      const status = SEEDANCE_STATUS_MAP[d.status] || d.status;
+      const videoUrl = status === 'completed' ? (d.content?.video_url || null) : null;
+      return res.json({ status, videoUrl, progress: null });
+    }
+
+    // ── WAN 轮询 ──
     const response = await axios.get(`${DS_API_BASE}/tasks/${taskId}`, { headers: { Authorization: `Bearer ${DASHSCOPE_KEY}` }, timeout: 15000 });
     const output   = response.data?.output || {};
     const status   = WAN_STATUS_MAP[output.task_status] || output.task_status;

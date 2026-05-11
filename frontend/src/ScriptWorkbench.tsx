@@ -499,31 +499,71 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
     try {
       const { data: list } = await axios.get(`/api/assets?projectId=${projectId}`, { headers: authHeaders() })
       assetsCacheRef.current = list
-      return list as Array<{name:string;dna:string;description:string;type:string}>
+      return list as Array<{name:string;dna:string;description:string;type:string;imageUrl?:string}>
     } catch { return [] }
   }, [projectId])
 
-  const resolveAtMentions = (prompt: string, assets: Array<{name:string;dna:string;description:string;type:string}>) => {
+  /**
+   * buildReferenceContext — Seedance 2.0 参考图模式
+   *
+   * 对 seedancePrompt 中每个 @资产名：
+   *   - 如果资产有图片 → 收集为 referenceImages，prompt 里改为 @image1 / @image2…
+   *   - 如果没有图片   → 回退：替换为 DNA / description 文本
+   *
+   * 返回 { prompt, referenceImages: [{name, imageUrl, label}] }
+   * referenceImages 直接传给 VideoGenNode，由后端在 Seedance content 数组中附加
+   */
+  const buildReferenceContext = (
+    prompt: string,
+    assets: Array<{name:string;dna:string;description:string;type:string;imageUrl?:string}>
+  ): { prompt: string; referenceImages: Array<{name:string;imageUrl:string;label:string}> } => {
+    // 按出现顺序收集唯一 @Name
+    const mentionOrder: string[] = []
+    const seenNames = new Set<string>()
+    const regex = /@([\w一-龥·]+)/g
+    let m: RegExpExecArray | null
+    while ((m = regex.exec(prompt)) !== null) {
+      if (!seenNames.has(m[1])) { seenNames.add(m[1]); mentionOrder.push(m[1]) }
+    }
+
+    const referenceImages: Array<{name:string;imageUrl:string;label:string}> = []
+    const nameToLabel = new Map<string, string>()  // 有图的才进这个 map
+
+    for (const name of mentionOrder) {
+      const asset = assets.find(a => a.name === name)
+      if (!asset) continue
+      const imgUrl = asset.imageUrl || null
+      if (!imgUrl) continue  // 没图，走文字回退
+      const label = `image${referenceImages.length + 1}`
+      nameToLabel.set(name, label)
+      referenceImages.push({ name, imageUrl: imgUrl, label })
+    }
+
     let resolved = prompt
-    const sorted = [...assets].sort((a, b) => b.name.length - a.name.length)
-    for (const asset of sorted) {
-      const tag = `@${asset.name}`
-      if (resolved.includes(tag)) {
-        const desc = (asset.dna || asset.description || asset.name).trim()
-        resolved = resolved.split(tag).join(desc)
+    // 有图的替换为 @imageN
+    for (const [name, label] of nameToLabel.entries()) {
+      resolved = resolved.split(`@${name}`).join(`@${label}`)
+    }
+    // 没图的回退为 DNA / description 文本
+    for (const name of mentionOrder) {
+      if (!nameToLabel.has(name)) {
+        const asset = assets.find(a => a.name === name)
+        const desc = asset ? (asset.dna || asset.description || name).trim() : name
+        resolved = resolved.split(`@${name}`).join(desc)
       }
     }
-    return resolved
+
+    return { prompt: resolved, referenceImages }
   }
 
   const handleSendShotToCanvas = useCallback(async (shot: StoryboardShot, episodeIndex: number, shotIndex: number, offsetX = 0) => {
     const assets = await fetchAssets()
-    const resolvedPrompt = resolveAtMentions(shot.seedancePrompt, assets)
+    const { prompt: resolvedPrompt, referenceImages } = buildReferenceContext(shot.seedancePrompt, assets)
     const node = {
       id: `video_ep${episodeIndex}_s${shotIndex}_${Date.now()}`,
       type: 'videoGen',
       position: { x: 200 + offsetX, y: 400 },
-      data: { name: `第${episodeIndex+1}集·场景${shot.shotNumber}·15s`, initialPrompt: resolvedPrompt },
+      data: { name: `第${episodeIndex+1}集·场景${shot.shotNumber}·15s`, initialPrompt: resolvedPrompt, referenceImages },
     }
     window.dispatchEvent(new CustomEvent('add-node-to-canvas', { detail: { node } }))
     // Mark sent
@@ -539,12 +579,12 @@ export default function ScriptWorkbench({ projectId, projectName, onHome, onSwit
   const handleSendAllToCanvas = useCallback(async (shots: StoryboardShot[], episodeIndex: number) => {
     const assets = await fetchAssets()
     shots.forEach((shot, i) => {
-      const resolvedPrompt = resolveAtMentions(shot.seedancePrompt, assets)
+      const { prompt: resolvedPrompt, referenceImages } = buildReferenceContext(shot.seedancePrompt, assets)
       const node = {
         id: `video_ep${episodeIndex}_s${i}_${Date.now() + i}`,
         type: 'videoGen',
         position: { x: 200 + i * 420, y: 400 },
-        data: { name: `第${episodeIndex+1}集·场景${shot.shotNumber}·15s`, initialPrompt: resolvedPrompt },
+        data: { name: `第${episodeIndex+1}集·场景${shot.shotNumber}·15s`, initialPrompt: resolvedPrompt, referenceImages },
       }
       window.dispatchEvent(new CustomEvent('add-node-to-canvas', { detail: { node } }))
     })

@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { Handle, Position, type NodeProps, useReactFlow } from '@xyflow/react'
 import EditableTitle from './EditableTitle'
 import { useTheme } from '../ThemeContext'
+import { authImageUrl } from '../lib/imageUrl'
 import axios from 'axios'
 
 // ── 模型配置 ─────────────────────────────────────────────────
@@ -12,6 +13,13 @@ const ALL_MODELS = [
   { id: 'seedance_landscape', label: 'Seedance 2.0 横屏',   desc: '1280×720 · 接入中', disabled: true  },
   { id: 'seedance_portrait',  label: 'Seedance 2.0 竖屏',   desc: '720×1280 · 接入中', disabled: true  },
 ]
+
+// ── 类型 ─────────────────────────────────────────────────────
+interface ReferenceImage {
+  name: string        // 资产名（如"林晓月"）
+  imageUrl: string    // 本地路径或外部 URL
+  label: string       // "image1", "image2", ...
+}
 
 // 主题色（蓝紫）
 const C = 'rgba(124,58,237,'
@@ -37,19 +45,65 @@ function ProgressBar({ progress }: { progress: number | null }) {
   )
 }
 
+// ── 参考图缩略条 ─────────────────────────────────────────────
+function ReferenceStrip({ images, T }: { images: ReferenceImage[]; T: any }) {
+  if (images.length === 0) return null
+  return (
+    <div
+      style={{
+        display: 'flex', gap: 6, padding: '8px 10px', borderRadius: 8,
+        background: 'rgba(201,152,42,0.06)',
+        border: '1px solid rgba(201,152,42,0.2)',
+      }}
+    >
+      <div style={{ fontSize: 10, color: 'rgba(201,152,42,0.8)', fontWeight: 600, alignSelf: 'center', whiteSpace: 'nowrap' }}>
+        参考图
+      </div>
+      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', flex: 1 }}>
+        {images.map((img) => (
+          <div key={img.label} style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+            <div
+              style={{
+                width: 48, height: 48, borderRadius: 6, overflow: 'hidden',
+                border: '1px solid rgba(201,152,42,0.3)',
+                background: T.nodeSubtle,
+                flexShrink: 0,
+              }}
+            >
+              <img
+                src={authImageUrl(img.imageUrl)}
+                alt={img.name}
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+              />
+            </div>
+            <div style={{ fontSize: 9, color: 'rgba(201,152,42,0.7)', textAlign: 'center', maxWidth: 48, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {img.label} · {img.name}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── 主组件 ───────────────────────────────────────────────────
 export default function VideoGenNode({ id, data }: NodeProps) {
   const { setNodes } = useReactFlow()
   const { T } = useTheme()
-  const nodeName = (data as Record<string, unknown>)?.name as string || '生视频'
+  const d = data as Record<string, unknown>
+  const nodeName = d?.name as string || '生视频'
   const handleRename = (v: string) =>
     setNodes(nds => nds.map(n => n.id === id ? { ...n, data: { ...n.data, name: v } } : n))
+
   const [model,     setModel]     = useState('wan_landscape')
-  const [prompt,    setPrompt]    = useState((data as Record<string, unknown>)?.initialPrompt as string || '')
+  const [prompt,    setPrompt]    = useState(d?.initialPrompt as string || '')
+  const [referenceImages] = useState<ReferenceImage[]>((d?.referenceImages as ReferenceImage[]) || [])
   const [status,    setStatus]    = useState<VideoStatus>('idle')
   const [progress,  setProgress]  = useState<number | null>(null)
   const [videoUrl,  setVideoUrl]  = useState<string | null>(null)
   const [taskId,    setTaskId]    = useState<string | null>(null)
+  const [taskType,  setTaskType]  = useState<'wan' | 'seedance'>('wan')
   const [error,     setError]     = useState<string | null>(null)
   const [elapsed,   setElapsed]   = useState(0)
 
@@ -63,7 +117,7 @@ export default function VideoGenNode({ id, data }: NodeProps) {
   }, [])
 
   // 开始轮询
-  const startPolling = useCallback((tId: string) => {
+  const startPolling = useCallback((tId: string, type: 'wan' | 'seedance' = 'wan') => {
     setElapsed(0)
     let failCount = 0  // 连续失败计数，防止偶发 failed 误判
 
@@ -74,7 +128,7 @@ export default function VideoGenNode({ id, data }: NodeProps) {
     pollRef.current = setInterval(async () => {
       try {
         const { data } = await axios.get('/api/video-status', {
-          params: { taskId: tId },
+          params: { taskId: tId, type },
         })
 
         if (data.progress != null) setProgress(data.progress)
@@ -119,12 +173,15 @@ export default function VideoGenNode({ id, data }: NodeProps) {
       const { data } = await axios.post('/api/generate-video', {
         prompt: trimmed,
         model,
+        // Seedance 2.0 参考图：后端负责将本地路径转为 base64 并构建 content 数组
+        referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
       })
 
-      const { taskId: tId } = data
+      const { taskId: tId, type: tType = 'wan' } = data
       setTaskId(tId)
+      setTaskType(tType as 'wan' | 'seedance')
       setStatus('processing')
-      startPolling(tId)
+      startPolling(tId, tType as 'wan' | 'seedance')
 
     } catch (err: unknown) {
       const msg = axios.isAxiosError(err)
@@ -133,7 +190,7 @@ export default function VideoGenNode({ id, data }: NodeProps) {
       setError(String(msg))
       setStatus('failed')
     }
-  }, [prompt, model, status, stopPolling, startPolling])
+  }, [prompt, model, status, referenceImages, stopPolling, startPolling])  // taskType used in startPolling via closure
 
   const isGenerating = status === 'submitting' || status === 'processing'
   const canGenerate  = !!prompt.trim() && !isGenerating
@@ -192,6 +249,9 @@ export default function VideoGenNode({ id, data }: NodeProps) {
             </option>
           ))}
         </select>
+
+        {/* 参考图缩略条（分镜发送时携带） */}
+        <ReferenceStrip images={referenceImages} T={T} />
 
         {/* Prompt */}
         <textarea
