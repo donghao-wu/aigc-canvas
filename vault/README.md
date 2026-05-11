@@ -34,6 +34,25 @@
 
 ## Changelog
 
+### 2026-05-11 — 分镜生成 + Seedance 2.0 + @资产引用
+
+**剧本 → 分镜 → 画布 完整链路**
+- 每集剧本下新增"📽 分镜"子标签页（剧本/分镜双 tab 切换）
+- `STORYBOARD_PROMPT`：AI 从剧本选取 3–5 个戏剧高峰，生成约 15 秒分镜方案
+- 分镜提示词使用 `@资产名` 引用（如 `@林晓月 nervously checks her phone`）
+- 发送到画布时系统自动替换 `@资产名` → 资产 DNA 描述（调用 `/api/assets` 解析）
+- 每集独立生成，互不干扰；生成结果持久化到 `project.data.storyboardByEpisode`
+- "→ 画布"（单个镜头）和"全部发送到画布"（批量横向排列）
+- 画布 VideoGenNode 新增 `initialPrompt` 支持，接收分镜发来的预填充提示词
+
+**Seedance 2.0 占位**
+- VideoGenNode 新增 Seedance 2.0 横屏/竖屏模型选项（disabled 状态，接入中）
+- 后端 `SEEDANCE_CONFIG` 预定义模型参数，收到 API key 后只需解开占位即可
+- `/api/generate-video` 对 seedance_* 模型返回友好 503 提示
+
+**Vault 同步**
+- 见 [[Agents/07-分镜生成]]（新建）
+
 ### 2026-05-11 — Token Tracking 根本原因修复（QA 发现）
 
 **Token tracking 第二层修复**
