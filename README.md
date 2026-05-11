@@ -530,7 +530,11 @@ chore: 依赖/配置更新
 
 ## Changelog
 
-### v0.5.2（当前）— 2026-05-11
+### v0.5.3（当前）— 2026-05-11
+- **敏感信息清理**：移除已跟踪的 `.claude/settings.local.json` 本地授权记录，并加入 `.gitignore`，避免个人命令、API token 或明文凭据进入仓库
+- **旧文档脱敏**：旧设计计划中的真实登录示例改为 `YOUR_USERNAME` / `YOUR_PASSWORD` 占位符
+
+### v0.5.2 — 2026-05-11
 - **分镜发送状态持久化**：单个或批量发送分镜到画布后，同步更新 `storyboardByEpisode` 并保存到后端，刷新后仍保留“已发送”状态
 - **Seedance 时长参数**：`/api/generate-video` 不再写死 Seedance `duration: 5`；视频节点会把分镜 `duration` 传给后端，分镜 v2 的 15s 场景可按 15s 提交
 

@@ -34,6 +34,12 @@
 
 ## Changelog
 
+### 2026-05-11 — 敏感信息清理
+
+- 从 Git 跟踪中移除 `.claude/settings.local.json` 本地授权记录，并加入 `.gitignore`，避免个人工具权限、API token 或明文命令进入仓库
+- 将旧设计计划里的真实登录示例替换为 `YOUR_USERNAME` / `YOUR_PASSWORD` 占位符
+- 安全扫描剩余命中均为代码变量名、接口字段名或 `.env.example` 占位符
+
 ### 2026-05-11 — 分镜发送状态 + Seedance 时长修正
 
 - 分镜发送到画布后会同步更新 `episodes[].storyboard` 与 `storyboardByEpisode`，并调用 `/api/projects/:id/storyboard` 持久化，刷新后保留“已发送”状态

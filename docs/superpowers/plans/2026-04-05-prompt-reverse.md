@@ -142,7 +142,7 @@ node index.js
 ```bash
 curl -X POST http://localhost:3001/api/analyze-image \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $(curl -s -X POST http://localhost:3001/api/auth/login -H 'Content-Type: application/json' -d '{"username":"wdy","password":"YOUR_PASSWORD"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')" \
+  -H "Authorization: Bearer $(curl -s -X POST http://localhost:3001/api/auth/login -H 'Content-Type: application/json' -d '{"username":"YOUR_USERNAME","password":"YOUR_PASSWORD"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')" \
   -d '{"base64":"/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoH","mimeType":"image/jpeg"}' \
   2>/dev/null | head -c 200
 ```
