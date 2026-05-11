@@ -939,6 +939,7 @@ ${episodeMapText.slice(0, 1500)}
         model: mode === 'summarize_episode' ? 'qwen-turbo' : AGENT_MODEL,
         messages,
         stream: true,
+        stream_options: { include_usage: true },
         max_tokens: mode === 'write_episode'     ? 8192
                   : mode === 'story_bible'       ? 4096
                   : mode === 'episode_map'       ? 8192
